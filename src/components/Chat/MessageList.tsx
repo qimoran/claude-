@@ -22,6 +22,7 @@ interface MessageListProps {
   isRollbacking?: boolean
   searchQuery?: string
   sessionId?: string
+  isActive?: boolean
 }
 
 // ── 搜索高亮组件 ────────────────────────────────────
@@ -823,7 +824,7 @@ function MessageItem({ message, isLoading, confirmTool, editMessage, regenerateM
 const VIRTUAL_THRESHOLD = 30
 
 // ── 主组件 ──────────────────────────────────────────────
-export default function MessageList({ messages, isLoading, streamBlocks, confirmTool, editMessage, regenerateMessage, rollbackToMessage, isRollbacking, searchQuery, sessionId }: MessageListProps) {
+export default function MessageList({ messages, isLoading, streamBlocks, confirmTool, editMessage, regenerateMessage, rollbackToMessage, isRollbacking, searchQuery, sessionId, isActive = true }: MessageListProps) {
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const { settings } = useAppSettings()
@@ -867,9 +868,14 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
     if (prevSessionIdRef.current !== sessionId) {
       prevSessionIdRef.current = sessionId
       isNearBottomRef.current = true
-      requestAnimationFrame(scrollToBottom)
+      requestAnimationFrame(() => {
+        if (useVirtual) {
+          virtualizer.measure()
+        }
+        scrollToBottom()
+      })
     }
-  }, [sessionId, scrollToBottom])
+  }, [sessionId, scrollToBottom, useVirtual, virtualizer])
 
   // 监听用户滚动，更新 isNearBottom 状态
   useEffect(() => {
@@ -890,47 +896,45 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
     // 新消息（用户发送）：强制滚到底部
     if (msgCountChanged && messages.length > 0 && messages[messages.length - 1].role === 'user') {
       isNearBottomRef.current = true
-      requestAnimationFrame(scrollToBottom)
+      requestAnimationFrame(() => {
+        if (useVirtual) {
+          virtualizer.measure()
+        }
+        scrollToBottom()
+      })
       return
     }
 
     // 流式更新 / 新 assistant 消息：仅在已处于底部时滚动
     if (isNearBottomRef.current) {
-      requestAnimationFrame(scrollToBottom)
-    }
-  }, [messages.length, streamBlocks, scrollToBottom])
-
-  // ── 面板可见性恢复：切换面板再切回时滚动到底部 ──
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-
-    let wasHidden = false
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          if (wasHidden) {
-            // 面板从隐藏恢复：滚动到底部显示最新内容
-            requestAnimationFrame(() => {
-              el.scrollTop = el.scrollHeight
-            })
-            // 虚拟化模式需要重新测量
-            if (useVirtual) {
-              virtualizer.measure()
-            }
-          }
-          wasHidden = false
-        } else {
-          wasHidden = true
+      requestAnimationFrame(() => {
+        if (useVirtual) {
+          virtualizer.measure()
         }
-      },
-      { threshold: 0.01 },
-    )
+        scrollToBottom()
+      })
+    }
+  }, [messages.length, streamBlocks, scrollToBottom, useVirtual, virtualizer])
 
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [useVirtual, virtualizer])
+  // 面板切换恢复：聊天面板重新显示时刷新虚拟列表测量并修正滚动
+  const wasActiveRef = useRef(isActive)
+  useEffect(() => {
+    const becameActive = !wasActiveRef.current && isActive
+    wasActiveRef.current = isActive
+
+    if (!becameActive) return
+
+    requestAnimationFrame(() => {
+      if (useVirtual) {
+        virtualizer.measure()
+      }
+      const el = scrollContainerRef.current
+      if (!el) return
+      if (isNearBottomRef.current) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
+  }, [isActive, useVirtual, virtualizer])
 
   if (messages.length === 0 && !isLoading) {
     return (

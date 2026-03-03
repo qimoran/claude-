@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Plus, X, Download, Upload, Search, MessageSquare, FileText, MoreHorizontal, Trash2, GitBranch, FolderOpen, Sun, Moon } from 'lucide-react'
 import { useClaudeCode } from '../../hooks/useClaudeCode'
 import MessageList from './MessageList'
@@ -7,7 +7,11 @@ import FileChangesPanel from './FileChangesPanel'
 import { useAppSettings } from '../../hooks/useAppSettings'
 import { formatTokens, formatCost } from '../../utils/pricing'
 
-export default function ChatPanel() {
+interface ChatPanelProps {
+  isActive?: boolean
+}
+
+export default function ChatPanel({ isActive = true }: ChatPanelProps) {
   const {
     messages,
     isLoading,
@@ -77,21 +81,23 @@ export default function ChatPanel() {
     }
   }, [activeSessionId])
 
-  const filteredMessages = searchQuery.trim()
-    ? messages.filter((m) => {
-      const q = searchQuery.toLowerCase()
-      // 纯文本内容
-      if (m.content.toLowerCase().includes(q)) return true
-      // 从 blocks 中提取文本搜索
-      if (m.blocks) {
-        for (const b of m.blocks) {
-          if (b.type === 'text' && b.content.toLowerCase().includes(q)) return true
-          if (b.type === 'tool_result' && b.output?.toLowerCase().includes(q)) return true
+  const filteredMessages = useMemo(() => (
+    searchQuery.trim()
+      ? messages.filter((m) => {
+        const q = searchQuery.toLowerCase()
+        // 纯文本内容
+        if (m.content.toLowerCase().includes(q)) return true
+        // 从 blocks 中提取文本搜索
+        if (m.blocks) {
+          for (const b of m.blocks) {
+            if (b.type === 'text' && b.content.toLowerCase().includes(q)) return true
+            if (b.type === 'tool_result' && b.output?.toLowerCase().includes(q)) return true
+          }
         }
-      }
-      return false
-    })
-    : messages
+        return false
+      })
+      : messages
+  ), [messages, searchQuery])
 
   const searchMatchCount = searchQuery.trim() ? filteredMessages.length : 0
 
@@ -578,7 +584,7 @@ export default function ChatPanel() {
         <div className="flex-1 overflow-hidden flex flex-col">
           <div className="flex-1 overflow-hidden">
             <MessageList
-              messages={searchQuery.trim() ? filteredMessages : messages}
+              messages={filteredMessages}
               isLoading={isLoading}
               streamBlocks={streamBlocks}
               confirmTool={confirmTool}
@@ -588,6 +594,7 @@ export default function ChatPanel() {
               isRollbacking={isRollbacking}
               searchQuery={searchQuery}
               sessionId={activeSessionId}
+              isActive={isActive}
             />
           </div>
 

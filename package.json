@@ -1,6 +1,6 @@
 {
   "name": "claude-code-gui",
-  "version": "1.0.1",
+  "version": "1.0.4",
   "description": "Claude Code 可视化桌面界面",
   "author": "Claude Code GUI Team",
   "main": "dist-electron/main.js",
@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "node scripts/prebuild-clean.cjs && tsc && vite build && electron-builder",
     "release:patch": "npm version patch --no-git-tag-version && npm run build",
+    "release:publish": "npm version patch --no-git-tag-version && node scripts/prebuild-clean.cjs && tsc && vite build && electron-builder --publish always",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "node scripts/prebuild-clean.cjs && vite build && electron-builder",
@@ -78,6 +79,14 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "qimoran",
+        "repo": "claude-",
+        "releaseType": "release"
+      }
     ],
     "win": {
       "target": "nsis",

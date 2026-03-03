@@ -181,7 +181,7 @@ function App() {
         <Sidebar activePanel={activePanel} onPanelChange={setActivePanel} />
         <main className="flex-1 overflow-hidden relative">
           <div className={`absolute inset-0 ${activePanel === 'chat' ? '' : 'hidden'}`}>
-            <ChatPanel />
+            <ChatPanel isActive={activePanel === 'chat'} />
           </div>
           <div className={`absolute inset-0 ${activePanel === 'commands' ? '' : 'hidden'}`}>
             <CommandPanel
