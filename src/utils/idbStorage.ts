@@ -77,9 +77,6 @@ export async function idbLoadSessions(): Promise<{ sessions: ChatSession[]; coun
       for (const msg of session.messages) {
         msg.timestamp = new Date(msg.timestamp)
       }
-      if (session.model) {
-        session.model = ''
-      }
     }
 
     return { sessions, counter: counter ?? 2 }
@@ -109,7 +106,6 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
       for (const msg of session.messages) {
         msg.timestamp = new Date(msg.timestamp)
       }
-      if (session.model) session.model = ''
     }
 
     await idbSaveSessions(parsed, counter)

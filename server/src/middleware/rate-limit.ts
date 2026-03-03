@@ -76,11 +76,12 @@ export const apiLimiter = rateLimit({
   keyFn: (req) => {
     const apiKey = req.headers['x-api-key'] as string
       || req.headers.authorization?.replace('Bearer ', '')
-      || (req.query.key as string)
-      || (req.headers['x-forwarded-for'] as string)
+    if (apiKey) return `api:${apiKey}`
+
+    const clientIp = (req.headers['x-forwarded-for'] as string)
       || req.socket.remoteAddress
       || 'unknown'
-    return apiKey
+    return `ip:${clientIp}`
   },
   message: '请求过于频繁，请稍后再试（每分钟最多 30 次）',
   storeName: 'api',

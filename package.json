@@ -6,12 +6,15 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prebuild-clean.cjs && tsc && vite build && electron-builder",
+    "typecheck": "tsc --noEmit",
+    "typecheck:electron": "tsc -p tsconfig.node.json --noEmit",
+    "build:app": "node scripts/prebuild-clean.cjs && vite build",
+    "build": "npm run typecheck && npm run typecheck:electron && npm run build:app && electron-builder",
     "release:patch": "npm version patch --no-git-tag-version && npm run build",
-    "release:publish": "npm version patch --no-git-tag-version && node scripts/prebuild-clean.cjs && tsc && vite build && electron-builder --publish always",
+    "release:publish": "npm version patch --no-git-tag-version && npm run typecheck && npm run typecheck:electron && npm run build:app && electron-builder --publish always",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "node scripts/prebuild-clean.cjs && vite build && electron-builder",
+    "electron:build": "npm run typecheck && npm run typecheck:electron && npm run build:app && electron-builder",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"electron/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest"

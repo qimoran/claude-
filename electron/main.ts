@@ -601,14 +601,32 @@ function listDirChildren(dirPath: string, showHidden: boolean = false): DirEntry
 }
 
 // Windows 路径安全比较
+function resolvePathSafe(rawPath: string): string {
+  return fs.realpathSync.native(path.resolve(rawPath))
+}
+
 function isInsideRoot(root: string, target: string): boolean {
-  const r0 = path.resolve(root)
-  const t0 = path.resolve(target)
-  // 用 relative 判断最可靠
-  const rel = path.relative(r0, t0)
-  if (rel === '') return true // 同一目录
-  if (rel.startsWith('..') || path.isAbsolute(rel)) return false
-  return true
+  try {
+    const realRoot = resolvePathSafe(root)
+    const realTarget = resolvePathSafe(target)
+    const rel = path.relative(realRoot, realTarget)
+    if (rel === '') return true
+    return !(rel.startsWith('..') || path.isAbsolute(rel))
+  } catch {
+    return false
+  }
+}
+
+function resolvePathWithinRoot(root: string, rawTarget: string): { root: string; target: string } {
+  const rootReal = resolvePathSafe(root)
+  const candidate = path.isAbsolute(rawTarget)
+    ? path.resolve(rawTarget)
+    : path.resolve(rootReal, rawTarget)
+  const targetReal = resolvePathSafe(candidate)
+  if (!isInsideRoot(rootReal, targetReal)) {
+    throw new Error('路径越界')
+  }
+  return { root: rootReal, target: targetReal }
 }
 
 ipcMain.handle('list-directory', async (_event, payload: { root: string; dirPath?: string; showHidden?: boolean }) => {
@@ -616,16 +634,14 @@ ipcMain.handle('list-directory', async (_event, payload: { root: string; dirPath
     const root = payload?.root?.trim()
     if (!root) return { error: '未设置工作目录', entries: [] }
 
-    const resolvedRoot = path.resolve(root)
-    if (!fs.existsSync(resolvedRoot)) return { error: `目录不存在: ${root}`, entries: [] }
+    const resolvedRoot = resolvePathSafe(root)
     if (!fs.statSync(resolvedRoot).isDirectory()) return { error: `不是目录: ${root}`, entries: [] }
 
     // 确定要列出的目标目录
     let targetDir = resolvedRoot
     if (payload.dirPath) {
-      targetDir = path.isAbsolute(payload.dirPath)
-        ? path.resolve(payload.dirPath)
-        : path.resolve(resolvedRoot, payload.dirPath)
+      const resolved = resolvePathWithinRoot(resolvedRoot, payload.dirPath)
+      targetDir = resolved.target
     }
 
     if (!isInsideRoot(resolvedRoot, targetDir)) return { error: '路径越界', entries: [] }
@@ -645,13 +661,13 @@ ipcMain.handle('read-file-content', async (_event, payload: { root: string; file
     const root = payload?.root?.trim()
     if (!root) return { error: '未设置工作目录' }
 
-    const resolvedRoot = path.resolve(root)
-    if (!fs.existsSync(resolvedRoot) || !fs.statSync(resolvedRoot).isDirectory()) return { error: 'root 无效' }
+    const resolvedRoot = resolvePathSafe(root)
+    if (!fs.statSync(resolvedRoot).isDirectory()) return { error: 'root 无效' }
 
     const raw = payload?.filePath
     if (!raw) return { error: 'filePath 不能为空' }
 
-    const fullPath = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(resolvedRoot, raw)
+    const { target: fullPath } = resolvePathWithinRoot(resolvedRoot, raw)
     if (!isInsideRoot(resolvedRoot, fullPath)) return { error: '路径越界（不在工作目录内）' }
 
     if (!fs.existsSync(fullPath)) return { error: '文件不存在' }
@@ -670,14 +686,20 @@ ipcMain.handle('write-file-content', async (_event, payload: { root: string; fil
     const root = payload?.root?.trim()
     if (!root) return { error: '未设置工作目录' }
 
-    const resolvedRoot = path.resolve(root)
-    if (!fs.existsSync(resolvedRoot) || !fs.statSync(resolvedRoot).isDirectory()) return { error: 'root 无效' }
+    const resolvedRoot = resolvePathSafe(root)
+    if (!fs.statSync(resolvedRoot).isDirectory()) return { error: 'root 无效' }
 
     const raw = payload?.filePath
     if (!raw) return { error: 'filePath 不能为空' }
 
-    const fullPath = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(resolvedRoot, raw)
-    if (!isInsideRoot(resolvedRoot, fullPath)) return { error: '路径越界（不在工作目录内）' }
+    const candidatePath = path.isAbsolute(raw)
+      ? path.resolve(raw)
+      : path.resolve(resolvedRoot, raw)
+    const parentDir = path.dirname(candidatePath)
+    const parentReal = resolvePathSafe(parentDir)
+    if (!isInsideRoot(resolvedRoot, parentReal)) return { error: '路径越界（不在工作目录内）' }
+
+    const fullPath = path.join(parentReal, path.basename(candidatePath))
 
     const dir = path.dirname(fullPath)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -729,19 +751,34 @@ ipcMain.handle('tool-confirm-response', async (_event, confirmId: string, approv
 })
 
 // ── 外部链接 / 本地文件打开 ──────────────────────────────
-ipcMain.handle('open-external', async (_event, url: string) => {
+ipcMain.handle('open-external', async (_event, payload: { target: string; root?: string }) => {
   try {
-    // http/https 链接 → 用默认浏览器打开
-    if (/^https?:\/\//i.test(url)) {
-      await shell.openExternal(url)
+    const target = payload?.target?.trim()
+    if (!target) return { success: false, error: '目标不能为空' }
+
+    // 仅允许 http/https
+    if (/^https?:\/\//i.test(target)) {
+      const parsed = new URL(target)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return { success: false, error: '不支持的 URL 协议' }
+      }
+      await shell.openExternal(parsed.toString())
       return { success: true }
     }
-    // 本地文件路径 → 用关联的默认程序打开（HTML 会用浏览器）
-    if (path.isAbsolute(url) && fs.existsSync(url)) {
-      const errMsg = await shell.openPath(url)
+
+    // 本地路径需在 root 内
+    if (path.isAbsolute(target) && fs.existsSync(target)) {
+      const root = payload?.root?.trim()
+      if (!root) return { success: false, error: '缺少工作目录，拒绝打开本地路径' }
+      const { root: rootReal, target: targetReal } = resolvePathWithinRoot(root, target)
+      if (!isInsideRoot(rootReal, targetReal)) {
+        return { success: false, error: '路径越界，拒绝打开' }
+      }
+      const errMsg = await shell.openPath(targetReal)
       if (errMsg) return { success: false, error: errMsg }
       return { success: true }
     }
+
     return { success: false, error: '无效的 URL 或文件路径' }
   } catch (err) {
     return { success: false, error: (err as Error).message }
@@ -831,38 +868,83 @@ ipcMain.handle('check-api-connection', async (_event, config: { endpoint: string
 // ── MCP 连接测试 ────────────────────────────────────────
 ipcMain.handle('test-mcp-connection', async (_event, config: { command: string; args: string }) => {
   return new Promise<{ connected: boolean; error?: string }>((resolve) => {
-    if (!config.command.trim()) {
+    const command = (config.command || '').trim()
+    if (!command) {
       resolve({ connected: false, error: '命令不能为空' })
       return
     }
 
-    const argsArray = config.args.trim().split(/\s+/).filter(Boolean)
-    const child = spawn(config.command, argsArray, {
+    // 仅允许可执行文件名/路径，不允许注入控制符
+    if (/['"`;&|><\n\r]/.test(command)) {
+      resolve({ connected: false, error: '命令包含非法字符' })
+      return
+    }
+
+    const dangerousCommands = new Set(['cmd', 'powershell', 'pwsh', 'sh', 'bash', 'zsh'])
+    const commandBase = path.basename(command).toLowerCase()
+    if (dangerousCommands.has(commandBase)) {
+      resolve({ connected: false, error: `不允许将高风险命令作为 MCP 启动命令: ${commandBase}` })
+      return
+    }
+
+    const rawArgs = (config.args || '').trim()
+    if (/[\n\r]/.test(rawArgs)) {
+      resolve({ connected: false, error: '参数包含非法换行符' })
+      return
+    }
+
+    const argsArray = rawArgs ? rawArgs.split(/\s+/).filter(Boolean) : []
+    if (argsArray.some(a => /[`;&|><]/.test(a))) {
+      resolve({ connected: false, error: '参数包含非法控制符' })
+      return
+    }
+
+    let settled = false
+    const done = (result: { connected: boolean; error?: string }) => {
+      if (settled) return
+      settled = true
+      resolve(result)
+    }
+
+    const child = spawn(command, argsArray, {
       shell: false,
       timeout: 5000,
     })
 
     let gotOutput = false
+    let stderrText = ''
+    let killedByProbe = false
+
     child.stdout?.on('data', () => { gotOutput = true })
-    child.stderr?.on('data', () => { gotOutput = true })
+    child.stderr?.on('data', (d) => {
+      gotOutput = true
+      stderrText += d.toString()
+    })
 
     child.on('error', (err) => {
-      resolve({ connected: false, error: err.message })
+      done({ connected: false, error: err.message })
     })
 
     // 等待 2 秒，如果进程还在运行说明连接成功
-    setTimeout(() => {
+    const probeTimer = setTimeout(() => {
       if (!child.killed) {
+        killedByProbe = true
         child.kill()
-        resolve({ connected: true })
+        done({ connected: true })
       }
     }, 2000)
 
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
+      clearTimeout(probeTimer)
+      if (killedByProbe || signal === 'SIGTERM') {
+        done({ connected: true })
+        return
+      }
       if (code === 0 || gotOutput) {
-        resolve({ connected: true })
+        done({ connected: true })
       } else {
-        resolve({ connected: false, error: `进程退出码: ${code}` })
+        const suffix = stderrText.trim() ? ` (${stderrText.trim().slice(0, 200)})` : ''
+        done({ connected: false, error: `进程退出码: ${code}${suffix}` })
       }
     })
   })
@@ -984,6 +1066,11 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
   const sessionId = (typeof payload === 'string' ? 'default' : payload.sessionId) || 'default'
 
   const currentPhase = getSessionPhase(sessionId)
+  if (currentPhase === 'streaming' || activeAbortControllers.has(sessionId)) {
+    event.sender.send('claude-stream-error', sessionId, '该会话已有任务在运行，请等待当前任务完成后重试')
+    event.sender.send('claude-stream-end', sessionId, 1)
+    return { code: 1 }
+  }
   if (currentPhase === 'rollback' || currentPhase === 'restore') {
     event.sender.send('claude-stream-error', sessionId, '会话正在回滚/恢复，请稍后重试')
     event.sender.send('claude-stream-end', sessionId, 1)
@@ -1044,7 +1131,7 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
   const SUMMARY_THRESHOLD = 300_000 // 达到此阈值时触发自动摘要
 
   // 自动摘要：上下文过长时，将前半部分对话压缩为摘要
-  if (history.length > 4 && estimateChars(history) > SUMMARY_THRESHOLD) {
+  if (!abortCtrl.aborted && history.length > 4 && estimateChars(history) > SUMMARY_THRESHOLD) {
     event.sender.send('claude-stream-data', sessionId, JSON.stringify({
       type: 'text',
       content: '\n[系统: 对话历史较长，正在自动生成摘要以压缩上下文...]\n',
@@ -1426,6 +1513,15 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
     // 记录本轮结束时的 history 长度（用于回滚时精确截断）
     turnInfo.turnEndHistoryIndex.set(currentTurn, history.length)
     recomputeMinRollbackTurn(sessionId)
+
+    if (!abortCtrl.aborted && round >= MAX_TOOL_ROUNDS) {
+      activeAbortControllers.delete(sessionId)
+      setSessionPhase(sessionId, 'idle')
+      const roundLimitError = `工具调用轮次达到上限 (${MAX_TOOL_ROUNDS})，任务已终止`
+      event.sender.send('claude-stream-error', sessionId, roundLimitError)
+      event.sender.send('claude-stream-end', sessionId, 1)
+      return { code: 1 }
+    }
 
     activeAbortControllers.delete(sessionId)
     setSessionPhase(sessionId, 'idle')

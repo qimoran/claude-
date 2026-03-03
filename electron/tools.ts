@@ -215,10 +215,24 @@ Shell: ${shell}
 }
 
 // ── 路径解析与安全校验 ────────────────────────────────────
+function resolvePathSafe(rawPath: string): string {
+  return fs.realpathSync.native(path.resolve(rawPath))
+}
+
 export function resolvePath(filePath: string, cwd: string): string {
-  const resolved = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(cwd, filePath)
-  const normalizedCwd = path.resolve(cwd)
-  if (!resolved.startsWith(normalizedCwd + path.sep) && resolved !== normalizedCwd) {
+  const normalizedCwd = resolvePathSafe(cwd)
+  const rawResolved = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(normalizedCwd, filePath)
+
+  let resolved: string
+  if (fs.existsSync(rawResolved)) {
+    resolved = resolvePathSafe(rawResolved)
+  } else {
+    const parentReal = resolvePathSafe(path.dirname(rawResolved))
+    resolved = path.join(parentReal, path.basename(rawResolved))
+  }
+
+  const rel = path.relative(normalizedCwd, resolved)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new Error(`路径越界: ${filePath} 解析为 ${resolved}，不在工作目录 ${normalizedCwd} 内`)
   }
   return resolved

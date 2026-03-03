@@ -535,7 +535,7 @@ function MarkdownContent({
               const handleClick = (e: React.MouseEvent) => {
                 e.preventDefault()
                 if (/^https?:\/\//i.test(url)) {
-                  window.electronAPI?.openExternal(url)
+                  window.electronAPI?.openExternal({ target: url })
                 }
               }
               return (

@@ -59,8 +59,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeFileContent: (root: string, filePath: string, content: string) =>
     ipcRenderer.invoke('write-file-content', { root, filePath, content }),
 
-  // 外部链接
-  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  // 外部链接 / 本地文件打开
+  openExternal: (payload: { target: string; root?: string }) => ipcRenderer.invoke('open-external', payload),
 
   // 桌面通知
   showNotification: (title: string, body: string) =>

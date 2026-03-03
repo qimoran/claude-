@@ -110,11 +110,19 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
       setConnStatus('disconnected')
       return
     }
+
+    const routingKey = plannedRouting.keySource
+    const routingKeyValue = routingKey === '中转站'
+      ? settings.thirdApiKey
+      : routingKey === '备用端点'
+        ? settings.altApiKey
+        : settings.apiKey
+
     try {
       const result = await window.electronAPI.checkApiConnection({
-        endpoint: settings.apiEndpoint,
-        key: settings.apiKey,
-        format: settings.apiFormat,
+        endpoint: plannedRouting.endpoint,
+        key: routingKeyValue,
+        format: plannedRouting.apiFormat,
       })
       if (result.connected) {
         setConnStatus('connected')
@@ -125,7 +133,14 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
     } catch {
       setConnStatus('disconnected')
     }
-  }, [settings.apiEndpoint, settings.apiKey, settings.apiFormat])
+  }, [
+    plannedRouting.endpoint,
+    plannedRouting.keySource,
+    plannedRouting.apiFormat,
+    settings.apiKey,
+    settings.altApiKey,
+    settings.thirdApiKey,
+  ])
 
   // 初次挂载及每 30 秒检测
   useEffect(() => {
@@ -287,7 +302,7 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
           title={connStatus === 'connected'
             ? `已连接 (${connLatency}ms) | ${plannedRouting.keySource} ${plannedRouting.endpoint}`
             : connStatus === 'disconnected'
-              ? '无法连接 API 端点，请检查设置'
+              ? `无法连接 API 端点 (${plannedRouting.keySource} ${plannedRouting.endpoint})`
               : '检测中...'
           }
         />
@@ -569,7 +584,7 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
       {connStatus === 'disconnected' && (
         <div className="px-4 py-1.5 border-b border-red-500/20 bg-red-500/5">
           <p className="text-[11px] text-red-400/80">
-            无法连接到 API ({settings.apiEndpoint})
+            无法连接到 API ({plannedRouting.endpoint})
           </p>
         </div>
       )}

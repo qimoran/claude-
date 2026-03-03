@@ -9,6 +9,58 @@ import { getCachedSetting } from '../utils/settings-cache'
 
 const router = Router()
 
+interface LogPayloadSummary {
+  messageCount: number
+  hasStream: boolean
+  maxTokens?: number
+}
+
+function summarizeRequestPayload(rawBody: string | null): string | null {
+  if (!rawBody) return null
+  try {
+    const parsed = JSON.parse(rawBody) as {
+      messages?: unknown[]
+      stream?: boolean
+      max_tokens?: number
+      max_completion_tokens?: number
+    }
+    const summary: LogPayloadSummary = {
+      messageCount: Array.isArray(parsed.messages) ? parsed.messages.length : 0,
+      hasStream: parsed.stream === true,
+    }
+    const maxTokens = typeof parsed.max_tokens === 'number'
+      ? parsed.max_tokens
+      : (typeof parsed.max_completion_tokens === 'number' ? parsed.max_completion_tokens : undefined)
+    if (typeof maxTokens === 'number') summary.maxTokens = maxTokens
+    return JSON.stringify(summary)
+  } catch {
+    return '[unparsed-request]'
+  }
+}
+
+function summarizeResponsePayload(rawBody: string | null): string | null {
+  if (!rawBody) return null
+  try {
+    const parsed = JSON.parse(rawBody) as {
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+      choices?: unknown[]
+    }
+    const usage = parsed.usage
+    return JSON.stringify({
+      usage: usage
+        ? {
+            promptTokens: usage.prompt_tokens || 0,
+            completionTokens: usage.completion_tokens || 0,
+            totalTokens: usage.total_tokens || 0,
+          }
+        : undefined,
+      choiceCount: Array.isArray(parsed.choices) ? parsed.choices.length : 0,
+    })
+  } catch {
+    return '[response-redacted]'
+  }
+}
+
 // 记录用量
 function logUsage(
   userId: string, model: string,
@@ -19,13 +71,12 @@ function logUsage(
   responseBody: string | null = null
 ) {
   const totalTokens = tokensIn + tokensOut
-  // 限制存储大小，最多存 10KB
-  const reqTrunc = requestBody && requestBody.length > 10240 ? requestBody.slice(0, 10240) + '...[truncated]' : requestBody
-  const resTrunc = responseBody && responseBody.length > 10240 ? responseBody.slice(0, 10240) + '...[truncated]' : responseBody
+  const requestSummary = summarizeRequestPayload(requestBody)
+  const responseSummary = summarizeResponsePayload(responseBody)
   execute(`
     INSERT INTO usage_logs (user_id, model, tokens_in, tokens_out, total_tokens, duration_ms, status, error_message, ip_address, request_body, response_body)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [userId, model, tokensIn, tokensOut, totalTokens, durationMs, status, errorMessage, ip, reqTrunc, resTrunc])
+  `, [userId, model, tokensIn, tokensOut, totalTokens, durationMs, status, errorMessage, ip, requestSummary, responseSummary])
 
   // 检查是否跨天，跨天则重置 tokens_used_today
   const today = new Date().toISOString().slice(0, 10)
@@ -146,15 +197,12 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
           const durationMs = Date.now() - startTime
           // 提取流式内容和 usage
           const streamText = Buffer.concat(streamChunks).toString('utf-8')
-          let responseContent = ''
           let streamTokensIn = 0
           let streamTokensOut = 0
           for (const line of streamText.split('\n')) {
             if (!line.startsWith('data: ') || line === 'data: [DONE]') continue
             try {
               const d = JSON.parse(line.slice(6))
-              const delta = d.choices?.[0]?.delta?.content
-              if (delta) responseContent += delta
               // 很多 API 在最后一个 chunk 包含 usage
               if (d.usage) {
                 streamTokensIn = d.usage.prompt_tokens || 0
@@ -164,7 +212,16 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
           }
           // 如果 API 没返回 usage，用粗估
           if (!streamTokensOut) streamTokensOut = Math.ceil(totalChunks / 4)
-          logUsage(userId, model, streamTokensIn, streamTokensOut, durationMs, 'success', null, ip, bodyStr, responseContent || null)
+          const streamSummary = JSON.stringify({
+            chunks: streamChunks.length,
+            totalBytes: totalChunks,
+            usage: {
+              promptTokens: streamTokensIn,
+              completionTokens: streamTokensOut,
+              totalTokens: streamTokensIn + streamTokensOut,
+            },
+          })
+          logUsage(userId, model, streamTokensIn, streamTokensOut, durationMs, 'success', null, ip, bodyStr, streamSummary)
         })
       } else {
         // 非流式响应
@@ -178,9 +235,8 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
             const parsed = JSON.parse(body)
             const tokensIn = parsed.usage?.prompt_tokens || 0
             const tokensOut = parsed.usage?.completion_tokens || 0
-            // 提取响应文本
-            const responseContent = parsed.choices?.[0]?.message?.content || ''
-            logUsage(userId, model, tokensIn, tokensOut, durationMs, 'success', null, ip, bodyStr, responseContent)
+            // 传入原始响应体，logUsage 内部会最小化为 usage/choiceCount 摘要
+            logUsage(userId, model, tokensIn, tokensOut, durationMs, 'success', null, ip, bodyStr, body)
             res.status(proxyRes.statusCode || 200).json(parsed)
           } catch {
             logUsage(userId, model, 0, 0, durationMs, 'error', 'Invalid JSON response', ip, bodyStr, body)

@@ -116,11 +116,14 @@ interface UseClaudeCodeReturn {
 
 export type KeySource = '主端点' | '备用端点' | '中转站'
 
+type ApiFormat = 'anthropic' | 'openai'
+
 export interface RequestRouting {
   model: string
   endpoint: string
   keySource: KeySource
   keyMasked: string
+  apiFormat: ApiFormat
 }
 
 const DEFAULT_USAGE: SessionUsage = { totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0, requestCount: 0, messageCount: 0 }
@@ -160,13 +163,40 @@ export function useClaudeCode(): UseClaudeCodeReturn {
   const selectRouting = useCallback((modelId: string): Omit<RequestRouting, 'model'> => {
     const slot = resolveModelEndpointSlot(modelId)
     if (slot === 'third') {
-      return { endpoint: settings.thirdApiEndpoint, keySource: '中转站', keyMasked: maskKey(settings.thirdApiKey) }
+      return {
+        endpoint: settings.thirdApiEndpoint,
+        keySource: '中转站',
+        keyMasked: maskKey(settings.thirdApiKey),
+        apiFormat: settings.thirdApiFormat || settings.apiFormat,
+      }
     }
     if (slot === 'alt') {
-      return { endpoint: settings.altApiEndpoint, keySource: '备用端点', keyMasked: maskKey(settings.altApiKey) }
+      return {
+        endpoint: settings.altApiEndpoint,
+        keySource: '备用端点',
+        keyMasked: maskKey(settings.altApiKey),
+        apiFormat: settings.altApiFormat || settings.apiFormat,
+      }
     }
-    return { endpoint: settings.apiEndpoint, keySource: '主端点', keyMasked: maskKey(settings.apiKey) }
-  }, [resolveModelEndpointSlot, maskKey, settings.thirdApiEndpoint, settings.thirdApiKey, settings.altApiEndpoint, settings.altApiKey, settings.apiEndpoint, settings.apiKey])
+    return {
+      endpoint: settings.apiEndpoint,
+      keySource: '主端点',
+      keyMasked: maskKey(settings.apiKey),
+      apiFormat: settings.apiFormat,
+    }
+  }, [
+    resolveModelEndpointSlot,
+    maskKey,
+    settings.thirdApiEndpoint,
+    settings.thirdApiKey,
+    settings.thirdApiFormat,
+    settings.altApiEndpoint,
+    settings.altApiKey,
+    settings.altApiFormat,
+    settings.apiEndpoint,
+    settings.apiKey,
+    settings.apiFormat,
+  ])
 
   // 初始化：同步加载 localStorage 作为即时值，异步加载 IndexedDB 后覆盖
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
@@ -616,7 +646,14 @@ export function useClaudeCode(): UseClaudeCodeReturn {
       streamBlocksRef.current = next
       return next
     })
-    setPendingMergeSessions(new Set())
+    setPendingMergeSessions((prev) => {
+      const remaining = new Set<string>()
+      for (const sid of prev) {
+        const hasPendingForEpoch = pendingEventsRef.current.some(e => e.sessionId === sid && e.epoch === (rollbackEpochRef.current[sid] || 0))
+        if (hasPendingForEpoch) remaining.add(sid)
+      }
+      return remaining
+    })
   }, [pendingMergeSessions, streamBlocksMap, updateSession])
 
   // 会话级工作目录优先于全局设置
@@ -728,7 +765,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
           skipPermissions: settings.dangerouslySkipPermissions,
           apiEndpoint: routing.endpoint,
           apiKey: routing.keySource === '中转站' ? settings.thirdApiKey : routing.keySource === '备用端点' ? settings.altApiKey : settings.apiKey,
-          apiFormat: routing.keySource === '中转站' ? (settings.thirdApiFormat || settings.apiFormat) : routing.keySource === '备用端点' ? (settings.altApiFormat || settings.apiFormat) : settings.apiFormat,
+          apiFormat: routing.apiFormat,
           images: images && images.length > 0 ? images : undefined,
           customSystemPrompt: activeSession.customSystemPrompt || undefined,
           useClaudeCodePrompt: settings.useClaudeCodePrompt,
@@ -790,9 +827,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
         model: selectedModel,
         apiEndpoint: routing.endpoint,
         apiKey: routing.keySource === '中转站' ? settings.thirdApiKey : routing.keySource === '备用端点' ? settings.altApiKey : settings.apiKey,
-        apiFormat: routing.keySource === '中转站' ? (settings.thirdApiFormat || settings.apiFormat) : routing.keySource === '备用端点'
-          ? (settings.altApiFormat || settings.apiFormat)
-          : settings.apiFormat,
+        apiFormat: routing.apiFormat,
       })
       return result.output
     } catch (err) {

@@ -170,8 +170,8 @@ interface ElectronAPI {
     success?: boolean
     error?: string
   }>
-  // 外部链接
-  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
+  // 外部链接 / 本地文件打开
+  openExternal: (payload: { target: string; root?: string }) => Promise<{ success: boolean; error?: string }>
   // 桌面通知
   showNotification: (title: string, body: string) => Promise<{ success: boolean; error?: string }>
   // 安全存储

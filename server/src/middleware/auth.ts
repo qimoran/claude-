@@ -46,7 +46,6 @@ export function adminMiddleware(req: Request, res: Response, next: NextFunction)
 export function apiKeyMiddleware(req: Request, res: Response, next: NextFunction): void {
   const apiKey = req.headers['x-api-key'] as string
     || req.headers.authorization?.replace('Bearer ', '')
-    || (req.query.key as string)
 
   if (!apiKey) {
     res.status(401).json({ error: '缺少 API Key' })

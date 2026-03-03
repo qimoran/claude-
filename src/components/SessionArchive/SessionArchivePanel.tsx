@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Search, Pin, PinOff, Tag, MessageSquare, Clock, X } from 'lucide-react'
+import { idbLoadSessions, loadSessionsFromStorage } from '../../utils/sessionStorage'
 
 interface ArchivedSession {
   id: string
@@ -12,7 +13,6 @@ interface ArchivedSession {
   tags?: string[]
 }
 
-const SESSIONS_STORAGE_KEY = 'claude-code-gui-sessions'
 const ARCHIVE_META_KEY = 'claude-code-gui-archive-meta'
 
 interface ArchiveMeta {
@@ -34,36 +34,44 @@ function saveArchiveMeta(meta: ArchiveMeta) {
   } catch { /* ignore */ }
 }
 
-function loadSessions(): ArchivedSession[] {
-  try {
-    const raw = localStorage.getItem(SESSIONS_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    const meta = loadArchiveMeta()
+function mapToArchivedSessions(parsed: Array<{
+  id: string
+  title: string
+  model: string
+  messages: Array<{ timestamp?: string | Date }>
+}>): ArchivedSession[] {
+  const meta = loadArchiveMeta()
+  return parsed.map((s) => {
+    const msgs = s.messages || []
+    const times = msgs
+      .map((m) => m.timestamp)
+      .filter(Boolean)
+      .map((ts) => ts instanceof Date ? ts.toISOString() : String(ts))
+    return {
+      id: s.id,
+      title: s.title || '未命名会话',
+      model: s.model || '',
+      messageCount: msgs.length,
+      firstMessageTime: times[0] || undefined,
+      lastMessageTime: times[times.length - 1] || undefined,
+      pinned: meta.pinned.includes(s.id),
+      tags: meta.tags[s.id] || [],
+    }
+  })
+}
 
-    return parsed.map((s: {
-      id: string
-      title: string
-      model: string
-      messages: Array<{ timestamp?: string }>
-    }) => {
-      const msgs = s.messages || []
-      const times = msgs.map(m => m.timestamp).filter(Boolean) as string[]
-      return {
-        id: s.id,
-        title: s.title || '未命名会话',
-        model: s.model || '',
-        messageCount: msgs.length,
-        firstMessageTime: times[0] || undefined,
-        lastMessageTime: times[times.length - 1] || undefined,
-        pinned: meta.pinned.includes(s.id),
-        tags: meta.tags[s.id] || [],
-      }
-    })
-  } catch {
-    return []
+async function loadSessions(): Promise<ArchivedSession[]> {
+  const idbData = await idbLoadSessions()
+  if (idbData && idbData.sessions.length > 0) {
+    return mapToArchivedSessions(idbData.sessions)
   }
+
+  const fallback = loadSessionsFromStorage()
+  if (fallback && fallback.sessions.length > 0) {
+    return mapToArchivedSessions(fallback.sessions)
+  }
+
+  return []
 }
 
 function formatDate(dateStr?: string): string {
@@ -123,7 +131,9 @@ export default function SessionArchivePanel({ onSwitchToSession }: SessionArchiv
   const [tagInput, setTagInput] = useState('')
 
   const reload = useCallback(() => {
-    setSessions(loadSessions())
+    loadSessions()
+      .then(setSessions)
+      .catch(() => setSessions([]))
   }, [])
 
   useEffect(() => {

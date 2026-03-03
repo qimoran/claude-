@@ -359,8 +359,8 @@ export default function FileBrowserPanel() {
   // 在浏览器中打开文件
   const handleOpenInBrowser = useCallback(() => {
     if (!selectedFile) return
-    window.electronAPI?.openExternal(selectedFile.path)
-  }, [selectedFile])
+    window.electronAPI?.openExternal({ target: selectedFile.path, root: cwd || undefined })
+  }, [selectedFile, cwd])
 
   // 保存文件
   const handleSave = useCallback(async () => {
@@ -695,7 +695,7 @@ export default function FileBrowserPanel() {
                 <iframe
                   src={`file:///${selectedFile.path.replace(/\\/g, '/')}`}
                   className="w-full h-full border-0 bg-white"
-                  sandbox="allow-same-origin allow-scripts"
+                  sandbox="allow-same-origin"
                   title={selectedFile.name}
                 />
               ) : (

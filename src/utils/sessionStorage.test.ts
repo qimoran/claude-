@@ -24,4 +24,5 @@ describe('createSession', () => {
     const s2 = createSession(2)
     expect(s1.id).not.toBe(s2.id)
   })
+
 })

@@ -38,11 +38,11 @@ async function init() {
   }
 
   console.log('管理员账号已创建')
-  console.log(`  用户名: admin`)
-  console.log(`  密码: ${config.adminPassword}`)
-  console.log(`  API Key: ${apiKey}`)
+  console.log('  用户名: admin')
+  console.log('  密码: [已隐藏]')
+  console.log('  API Key: [已隐藏]')
   console.log('')
-  console.log('请妥善保存以上信息！')
+  console.log('请妥善保存初始化时使用的管理员凭据。')
 }
 
 init().catch(console.error)

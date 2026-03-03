@@ -42,7 +42,7 @@
           <input id="login-password" type="password" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary" placeholder="密码">
         </div>
         <div id="login-error" class="text-xs text-dark-danger hidden"></div>
-        <button onclick="doLogin()" class="w-full bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-4 py-2 text-sm font-medium transition-colors">
+        <button id="login-submit" class="w-full bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-4 py-2 text-sm font-medium transition-colors">
           登录
         </button>
       </div>
@@ -58,19 +58,19 @@
         <p class="text-xs text-dark-muted mt-0.5">管理后台</p>
       </div>
       <nav class="flex-1 py-2">
-        <button onclick="showPage('dashboard')" data-nav="dashboard" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+        <button data-page="dashboard" data-nav="dashboard" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
           仪表盘
         </button>
-        <button onclick="showPage('users')" data-nav="users" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+        <button data-page="users" data-nav="users" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"/></svg>
           用户管理
         </button>
-        <button onclick="showPage('logs')" data-nav="logs" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+        <button data-page="logs" data-nav="logs" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
           请求日志
         </button>
-        <button onclick="showPage('settings')" data-nav="settings" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+        <button data-page="settings" data-nav="settings" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
           系统设置
         </button>
@@ -78,7 +78,7 @@
       <div class="px-4 py-3 border-t border-dark-border">
         <div class="flex items-center justify-between">
           <span id="current-user" class="text-xs text-dark-muted">admin</span>
-          <button onclick="doLogout()" class="text-xs text-dark-danger hover:text-dark-danger/80 transition-colors">退出</button>
+          <button id="logout-btn" class="text-xs text-dark-danger hover:text-dark-danger/80 transition-colors">退出</button>
         </div>
       </div>
     </aside>
@@ -132,7 +132,7 @@
       <div id="page-users" class="p-6 fade-in hidden">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-bold">用户管理</h2>
-          <button onclick="showAddUserModal()" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-3 py-1.5 text-xs font-medium transition-colors">
+          <button id="add-user-btn" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-3 py-1.5 text-xs font-medium transition-colors">
             + 添加用户
           </button>
         </div>
@@ -173,9 +173,9 @@
           </table>
         </div>
         <div class="flex justify-center mt-4 gap-2">
-          <button onclick="loadLogs('prev')" id="logs-prev" class="px-3 py-1 text-xs bg-dark-surface border border-dark-border rounded hover:bg-dark-bg disabled:opacity-30" disabled>上一页</button>
+          <button id="logs-prev" class="px-3 py-1 text-xs bg-dark-surface border border-dark-border rounded hover:bg-dark-bg disabled:opacity-30" disabled>上一页</button>
           <span id="logs-page-info" class="text-xs text-dark-muted px-2 py-1"></span>
-          <button onclick="loadLogs('next')" id="logs-next" class="px-3 py-1 text-xs bg-dark-surface border border-dark-border rounded hover:bg-dark-bg disabled:opacity-30">下一页</button>
+          <button id="logs-next" class="px-3 py-1 text-xs bg-dark-surface border border-dark-border rounded hover:bg-dark-bg disabled:opacity-30">下一页</button>
         </div>
       </div>
 
@@ -187,7 +187,7 @@
         <div class="mb-6">
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-medium text-dark-text">API 配置</h3>
-            <button onclick="addApiConfig()" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-3 py-1 text-xs font-medium transition-colors">+ 添加配置</button>
+            <button id="add-api-config-btn" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-3 py-1 text-xs font-medium transition-colors">+ 添加配置</button>
           </div>
           <div id="api-configs-list" class="space-y-3 max-w-2xl"></div>
         </div>
@@ -200,7 +200,7 @@
             <input id="setting-default-limit" type="number" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary" placeholder="1000000">
           </div>
           <div class="flex items-center gap-3">
-            <button onclick="saveSettings()" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-4 py-2 text-sm font-medium transition-colors">保存设置</button>
+            <button id="save-settings-btn" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-4 py-2 text-sm font-medium transition-colors">保存设置</button>
             <span id="settings-msg" class="text-xs text-dark-success hidden">已保存</span>
           </div>
         </div>
@@ -209,11 +209,11 @@
   </div>
 
   <!-- 日志详情弹窗 -->
-  <div id="log-detail-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div id="log-detail-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 hidden">
     <div class="bg-dark-surface border border-dark-border rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col">
       <div class="flex items-center justify-between px-5 py-3 border-b border-dark-border">
         <h3 class="text-sm font-bold">请求详情</h3>
-        <button onclick="document.getElementById('log-detail-modal').classList.add('hidden')" class="text-dark-muted hover:text-dark-text text-lg">&times;</button>
+        <button id="close-log-detail-btn" class="text-dark-muted hover:text-dark-text text-lg">&times;</button>
       </div>
       <div class="flex-1 overflow-y-auto p-5 space-y-4">
         <div class="grid grid-cols-4 gap-3 text-xs">
@@ -278,8 +278,8 @@
         </div>
         <div id="modal-error" class="text-xs text-dark-danger hidden"></div>
         <div class="flex justify-end gap-2 mt-4">
-          <button onclick="closeUserModal()" class="px-4 py-2 text-sm text-dark-muted hover:text-dark-text border border-dark-border rounded transition-colors">取消</button>
-          <button onclick="saveUser()" class="px-4 py-2 text-sm bg-dark-primary hover:bg-dark-primary/80 text-white rounded font-medium transition-colors">保存</button>
+          <button id="cancel-user-modal-btn" class="px-4 py-2 text-sm text-dark-muted hover:text-dark-text border border-dark-border rounded transition-colors">取消</button>
+          <button id="save-user-btn" class="px-4 py-2 text-sm bg-dark-primary hover:bg-dark-primary/80 text-white rounded font-medium transition-colors">保存</button>
         </div>
       </div>
     </div>
@@ -388,25 +388,69 @@ async function loadUsers() {
   try {
     const data = await api('/api/admin/users')
     const tbody = document.getElementById('users-table')
-    tbody.innerHTML = data.users.map(u => `
-      <tr class="border-b border-dark-border/50 hover:bg-dark-bg/50">
+    tbody.innerHTML = ''
+
+    for (const u of data.users) {
+      const tr = document.createElement('tr')
+      tr.className = 'border-b border-dark-border/50 hover:bg-dark-bg/50'
+
+      const roleClass = u.role === 'admin'
+        ? 'bg-dark-primary/20 text-dark-primary'
+        : 'bg-dark-muted/20 text-dark-muted'
+      const statusClass = u.status === 'active'
+        ? 'bg-dark-success/20 text-dark-success'
+        : 'bg-dark-danger/20 text-dark-danger'
+      const statusText = u.status === 'active' ? '启用' : '停用'
+
+      tr.innerHTML = `
         <td class="px-4 py-2 font-medium">${esc(u.username)}</td>
-        <td class="px-4 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] ${u.role === 'admin' ? 'bg-dark-primary/20 text-dark-primary' : 'bg-dark-muted/20 text-dark-muted'}">${u.role}</span></td>
-        <td class="px-4 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] ${u.status === 'active' ? 'bg-dark-success/20 text-dark-success' : 'bg-dark-danger/20 text-dark-danger'}">${u.status === 'active' ? '启用' : '停用'}</span></td>
-        <td class="px-4 py-2"><code class="text-[10px] text-dark-muted bg-dark-bg px-1.5 py-0.5 rounded cursor-pointer" onclick="copyText('${u.api_key}')" title="点击复制">${u.api_key.slice(0, 12)}...</code></td>
+        <td class="px-4 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] ${roleClass}">${u.role}</span></td>
+        <td class="px-4 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] ${statusClass}">${statusText}</span></td>
+        <td class="px-4 py-2"><code class="api-key-copy text-[10px] text-dark-muted bg-dark-bg px-1.5 py-0.5 rounded cursor-pointer" title="点击复制">${u.api_key.slice(0, 12)}...</code></td>
         <td class="px-4 py-2 text-right text-xs">${fmtNum(u.max_tokens_per_day)}</td>
         <td class="px-4 py-2 text-right text-xs">${fmtNum(u.tokens_used_today)} / ${fmtNum(u.total_tokens_used)}</td>
         <td class="px-4 py-2 text-xs text-dark-muted">${esc(u.note || '')}</td>
         <td class="px-4 py-2 text-center">
-          <div class="flex items-center justify-center gap-1">
-            <button onclick='editUser(${JSON.stringify(u)})' class="text-[10px] text-dark-primary hover:underline">编辑</button>
-            <button onclick="resetUsage('${u.id}')" class="text-[10px] text-dark-warn hover:underline">重置</button>
-            <button onclick="regenKey('${u.id}')" class="text-[10px] text-dark-success hover:underline">换Key</button>
-            ${u.role !== 'admin' ? `<button onclick="deleteUser('${u.id}','${esc(u.username)}')" class="text-[10px] text-dark-danger hover:underline">删除</button>` : ''}
-          </div>
+          <div class="actions flex items-center justify-center gap-1"></div>
         </td>
-      </tr>
-    `).join('')
+      `
+
+      const keyEl = tr.querySelector('.api-key-copy')
+      if (keyEl) {
+        keyEl.addEventListener('click', () => copyText(u.api_key))
+      }
+
+      const actions = tr.querySelector('.actions')
+      if (actions) {
+        const editBtn = document.createElement('button')
+        editBtn.className = 'text-[10px] text-dark-primary hover:underline'
+        editBtn.textContent = '编辑'
+        editBtn.addEventListener('click', () => editUser(u))
+        actions.appendChild(editBtn)
+
+        const resetBtn = document.createElement('button')
+        resetBtn.className = 'text-[10px] text-dark-warn hover:underline'
+        resetBtn.textContent = '重置'
+        resetBtn.addEventListener('click', () => resetUsage(u.id))
+        actions.appendChild(resetBtn)
+
+        const regenBtn = document.createElement('button')
+        regenBtn.className = 'text-[10px] text-dark-success hover:underline'
+        regenBtn.textContent = '换Key'
+        regenBtn.addEventListener('click', () => regenKey(u.id))
+        actions.appendChild(regenBtn)
+
+        if (u.role !== 'admin') {
+          const delBtn = document.createElement('button')
+          delBtn.className = 'text-[10px] text-dark-danger hover:underline'
+          delBtn.textContent = '删除'
+          delBtn.addEventListener('click', () => deleteUser(u.id, u.username))
+          actions.appendChild(delBtn)
+        }
+      }
+
+      tbody.appendChild(tr)
+    }
   } catch (e) {
     if (e.message.includes('过期')) doLogout()
   }
@@ -514,7 +558,7 @@ async function loadLogs(dir) {
         <td class="px-4 py-2 text-xs text-right font-medium">${fmtNum(l.total_tokens)}</td>
         <td class="px-4 py-2 text-xs text-right">${l.duration_ms ? l.duration_ms + 'ms' : '-'}</td>
         <td class="px-4 py-2"><span class="text-[10px] px-1.5 py-0.5 rounded ${l.status === 'success' ? 'bg-dark-success/20 text-dark-success' : 'bg-dark-danger/20 text-dark-danger'}">${l.status}</span></td>
-        <td class="px-4 py-2 text-center"><button onclick="showLogDetail(${i})" class="text-[10px] text-dark-primary hover:underline">查看</button></td>
+        <td class="px-4 py-2 text-center"><button data-log-index="${i}" class="log-detail-btn text-[10px] text-dark-primary hover:underline">查看</button></td>
       </tr>
     `).join('')
     if (data.logs.length === 0) tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-dark-muted text-xs">暂无记录</td></tr>'
@@ -561,36 +605,69 @@ function renderApiConfigs() {
     return
   }
   container.innerHTML = apiConfigs.map((c, i) => `
-    <div class="bg-dark-surface border border-dark-border rounded-lg p-4 fade-in">
+    <div class="bg-dark-surface border border-dark-border rounded-lg p-4 fade-in" data-config-index="${i}">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
           <span class="text-xs font-medium text-dark-text">#${i + 1}</span>
           <input type="text" value="${esc(c.name || '')}" placeholder="配置名称（可选）"
-            onchange="apiConfigs[${i}].name=this.value"
-            class="bg-dark-bg border border-dark-border rounded px-2 py-1 text-xs text-dark-text w-40 focus:border-dark-primary">
+            data-field="name"
+            class="cfg-name bg-dark-bg border border-dark-border rounded px-2 py-1 text-xs text-dark-text w-40 focus:border-dark-primary">
           <label class="flex items-center gap-1 text-xs text-dark-muted cursor-pointer ml-2">
-            <input type="checkbox" ${c.enabled !== false ? 'checked' : ''} onchange="apiConfigs[${i}].enabled=this.checked" class="accent-dark-primary">
+            <input type="checkbox" ${c.enabled !== false ? 'checked' : ''} data-field="enabled" class="cfg-enabled accent-dark-primary">
             启用
           </label>
         </div>
-        <button onclick="removeApiConfig(${i})" class="text-dark-danger hover:text-red-400 text-xs transition-colors" title="删除此配置">删除</button>
+        <button data-action="remove" class="cfg-remove text-dark-danger hover:text-red-400 text-xs transition-colors" title="删除此配置">删除</button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label class="block text-[10px] text-dark-muted mb-1">API 端点</label>
           <input type="text" value="${esc(c.endpoint || '')}" placeholder="https://api.openai.com"
-            onchange="apiConfigs[${i}].endpoint=this.value.trim()"
-            class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+            data-field="endpoint"
+            class="cfg-endpoint w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
         </div>
         <div>
           <label class="block text-[10px] text-dark-muted mb-1">API Key</label>
           <input type="password" value="${esc(c.apiKey || '')}" placeholder="sk-xxx"
-            onchange="apiConfigs[${i}].apiKey=this.value.trim()"
-            class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+            data-field="apiKey"
+            class="cfg-apikey w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
         </div>
       </div>
     </div>
   `).join('')
+
+  container.querySelectorAll('[data-config-index]').forEach((card) => {
+    const idx = Number(card.getAttribute('data-config-index'))
+    const nameInput = card.querySelector('.cfg-name')
+    const enabledInput = card.querySelector('.cfg-enabled')
+    const endpointInput = card.querySelector('.cfg-endpoint')
+    const apiKeyInput = card.querySelector('.cfg-apikey')
+    const removeBtn = card.querySelector('.cfg-remove')
+
+    if (nameInput) {
+      nameInput.addEventListener('change', (event) => {
+        apiConfigs[idx].name = event.target.value
+      })
+    }
+    if (enabledInput) {
+      enabledInput.addEventListener('change', (event) => {
+        apiConfigs[idx].enabled = event.target.checked
+      })
+    }
+    if (endpointInput) {
+      endpointInput.addEventListener('change', (event) => {
+        apiConfigs[idx].endpoint = event.target.value.trim()
+      })
+    }
+    if (apiKeyInput) {
+      apiKeyInput.addEventListener('change', (event) => {
+        apiConfigs[idx].apiKey = event.target.value.trim()
+      })
+    }
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => removeApiConfig(idx))
+    }
+  })
 }
 
 function addApiConfig() {
@@ -649,6 +726,37 @@ function copyText(t) { navigator.clipboard.writeText(t); }
 // ── 启动检查 ──────────────────────────────────────
 document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin() })
 document.getElementById('login-username').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin() })
+document.getElementById('login-submit').addEventListener('click', doLogin)
+document.getElementById('add-user-btn').addEventListener('click', showAddUserModal)
+document.getElementById('logs-prev').addEventListener('click', () => loadLogs('prev'))
+document.getElementById('logs-next').addEventListener('click', () => loadLogs('next'))
+document.getElementById('add-api-config-btn').addEventListener('click', addApiConfig)
+document.getElementById('save-settings-btn').addEventListener('click', saveSettings)
+document.getElementById('logout-btn').addEventListener('click', doLogout)
+document.getElementById('cancel-user-modal-btn').addEventListener('click', closeUserModal)
+document.getElementById('save-user-btn').addEventListener('click', saveUser)
+document.getElementById('close-log-detail-btn').addEventListener('click', () => {
+  document.getElementById('log-detail-modal').classList.add('hidden')
+})
+document.getElementById('log-detail-modal').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) {
+    event.currentTarget.classList.add('hidden')
+  }
+})
+document.querySelectorAll('.nav-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const page = btn.getAttribute('data-page')
+    if (page) showPage(page)
+  })
+})
+document.getElementById('logs-table').addEventListener('click', (event) => {
+  const target = event.target
+  const button = target.closest && target.closest('[data-log-index]')
+  if (!button) return
+  const index = Number(button.getAttribute('data-log-index'))
+  if (Number.isNaN(index)) return
+  showLogDetail(index)
+})
 
 if (token) {
   api('/api/auth/me').then(data => {
