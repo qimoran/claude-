@@ -1366,17 +1366,12 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
         mergedTools.push(...mcpInit.tools)
       }
       if (mcpInit.warnings.length > 0) {
-        event.sender.send('claude-stream-data', sessionId, JSON.stringify({
-          type: 'text',
-          content: `\n[系统: MCP 部分服务器不可用，已降级为可用工具继续执行]\n${mcpInit.warnings.map(w => `- ${w}`).join('\n')}\n`,
-        }))
+        console.warn(`[MCP:${sessionId}] 部分服务器不可用:\n${mcpInit.warnings.join('\n')}`)
       }
     } catch (err) {
-      event.sender.send('claude-stream-data', sessionId, JSON.stringify({
-        type: 'text',
-        content: `\n[系统: MCP 初始化失败，已回退为内置工具]\n- ${(err as Error).message}\n`,
-      }))
+      console.warn(`[MCP:${sessionId}] 初始化失败，回退内置工具: ${(err as Error).message}`)
       await mcpRuntime.shutdown()
+      mcpRuntime = null
     }
   }
 

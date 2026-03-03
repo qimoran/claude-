@@ -56,6 +56,8 @@ interface ToolCallResult {
   [key: string]: unknown
 }
 
+type McpTransportMode = 'content-length' | 'jsonl'
+
 interface ServerRuntime {
   server: McpServerPayload
   child: ChildProcessWithoutNullStreams
@@ -65,6 +67,7 @@ interface ServerRuntime {
   pending: Map<number, PendingRequest>
   stdoutBuffer: string
   toolCache: McpToolInfo[]
+  transportMode: McpTransportMode
 }
 
 interface ServerInitResult {
@@ -73,7 +76,7 @@ interface ServerInitResult {
   error?: string
 }
 
-const MCP_INITIALIZE_TIMEOUT_MS = 10_000
+const MCP_INITIALIZE_TIMEOUT_MS = 12_000
 const MCP_LIST_TOOLS_TIMEOUT_MS = 10_000
 const MCP_TOOL_CALL_TIMEOUT_MS = 30_000
 const MCP_STDIO_MAX_BUFFER_CHARS = 5_000_000
@@ -277,6 +280,7 @@ export class McpRuntime {
         pending: new Map(),
         stdoutBuffer: '',
         toolCache: [],
+        transportMode: 'jsonl',
       }
 
       child.stdout.setEncoding('utf8')
@@ -435,6 +439,12 @@ export class McpRuntime {
 
   private writeMessage(runtime: ServerRuntime, payload: Record<string, unknown>) {
     const json = JSON.stringify(payload)
+
+    if (runtime.transportMode === 'jsonl') {
+      runtime.child.stdin.write(`${json}\n`)
+      return
+    }
+
     const body = Buffer.from(json, 'utf8')
     const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'utf8')
     runtime.child.stdin.write(Buffer.concat([header, body]))
@@ -448,16 +458,14 @@ export class McpRuntime {
       runtime.stdoutBuffer = runtime.stdoutBuffer.slice(-Math.floor(MCP_STDIO_MAX_BUFFER_CHARS / 2))
     }
 
+    // 1) 优先解析 Content-Length 帧
     while (true) {
       const headerEnd = runtime.stdoutBuffer.indexOf('\r\n\r\n')
       if (headerEnd === -1) break
 
       const header = runtime.stdoutBuffer.slice(0, headerEnd)
       const contentLengthMatch = header.match(/Content-Length:\s*(\d+)/i)
-      if (!contentLengthMatch) {
-        runtime.stdoutBuffer = runtime.stdoutBuffer.slice(headerEnd + 4)
-        continue
-      }
+      if (!contentLengthMatch) break
 
       const contentLength = parseInt(contentLengthMatch[1], 10)
       const totalLength = headerEnd + 4 + contentLength
@@ -465,12 +473,37 @@ export class McpRuntime {
 
       const jsonText = runtime.stdoutBuffer.slice(headerEnd + 4, totalLength)
       runtime.stdoutBuffer = runtime.stdoutBuffer.slice(totalLength)
+      runtime.transportMode = 'content-length'
 
       try {
         const message = JSON.parse(jsonText) as JsonRpcResponse
         this.handleMessage(runtime, message)
       } catch {
         // ignore malformed packet
+      }
+    }
+
+    // 2) 再解析 JSONL（每行一个 JSON）
+    while (true) {
+      const newlineIdx = runtime.stdoutBuffer.indexOf('\n')
+      if (newlineIdx === -1) break
+
+      const line = runtime.stdoutBuffer.slice(0, newlineIdx).trim()
+      runtime.stdoutBuffer = runtime.stdoutBuffer.slice(newlineIdx + 1)
+      if (!line) continue
+
+      if (/^Content-Length\s*:/i.test(line)) {
+        // 可能是被拆开的 header 起始行，等待更多数据
+        runtime.stdoutBuffer = `${line}\n${runtime.stdoutBuffer}`
+        break
+      }
+
+      try {
+        const message = JSON.parse(line) as JsonRpcResponse
+        runtime.transportMode = 'jsonl'
+        this.handleMessage(runtime, message)
+      } catch {
+        // 非 JSON 行（日志等）忽略
       }
     }
   }
