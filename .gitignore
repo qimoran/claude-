@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-electron/
+release/
+
+# Vite generated
+vite.config.js
+vite.config.d.ts
+
+# TypeScript build info
+*.tsbuildinfo
+
+# OS files
+nul
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+build-log.txt
+dev-log.txt
+dev-stderr.txt
+dev-stdout.txt
+dev-verify.txt
+
+# Local agent/workspace metadata
+.claude/
+.windsurf/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Electron secure storage (contains encrypted keys)
+secure-keys.json

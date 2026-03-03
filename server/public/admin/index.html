@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code GUI - 管理后台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#1e1e1e', surface: '#252526', border: '#3e3e42', text: '#d4d4d4', muted: '#858585', primary: '#569cd6', danger: '#f44747', success: '#4ec9b0', warn: '#dcdcaa' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    input, select, textarea { outline: none; }
+    .fade-in { animation: fadeIn 0.2s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #1e1e1e; }
+    ::-webkit-scrollbar-thumb { background: #3e3e42; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-dark-bg text-dark-text min-h-screen">
+
+  <!-- 登录页 -->
+  <div id="login-page" class="min-h-screen flex items-center justify-center">
+    <div class="w-full max-w-sm bg-dark-surface border border-dark-border rounded-lg p-8">
+      <h1 class="text-xl font-bold mb-6 text-center">管理后台登录</h1>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs text-dark-muted mb-1">用户名</label>
+          <input id="login-username" type="text" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary" placeholder="admin">
+        </div>
+        <div>
+          <label class="block text-xs text-dark-muted mb-1">密码</label>
+          <input id="login-password" type="password" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary" placeholder="密码">
+        </div>
+        <div id="login-error" class="text-xs text-dark-danger hidden"></div>
+        <button onclick="doLogin()" class="w-full bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-4 py-2 text-sm font-medium transition-colors">
+          登录
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+  <div id="main-page" class="hidden min-h-screen flex">
+    <!-- 侧边栏 -->
+    <aside class="w-56 bg-dark-surface border-r border-dark-border flex flex-col flex-shrink-0">
+      <div class="px-4 py-4 border-b border-dark-border">
+        <h1 class="text-sm font-bold text-dark-primary">Claude Code GUI</h1>
+        <p class="text-xs text-dark-muted mt-0.5">管理后台</p>
+      </div>
+      <nav class="flex-1 py-2">
+        <button onclick="showPage('dashboard')" data-nav="dashboard" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+          仪表盘
+        </button>
+        <button onclick="showPage('users')" data-nav="users" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"/></svg>
+          用户管理
+        </button>
+        <button onclick="showPage('logs')" data-nav="logs" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          请求日志
+        </button>
+        <button onclick="showPage('settings')" data-nav="settings" class="nav-btn w-full text-left px-4 py-2 text-sm hover:bg-dark-bg transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          系统设置
+        </button>
+      </nav>
+      <div class="px-4 py-3 border-t border-dark-border">
+        <div class="flex items-center justify-between">
+          <span id="current-user" class="text-xs text-dark-muted">admin</span>
+          <button onclick="doLogout()" class="text-xs text-dark-danger hover:text-dark-danger/80 transition-colors">退出</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 内容区 -->
+    <main class="flex-1 overflow-y-auto">
+      <!-- 仪表盘 -->
+      <div id="page-dashboard" class="p-6 fade-in">
+        <h2 class="text-lg font-bold mb-4">仪表盘</h2>
+        <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          <div class="bg-dark-surface border border-dark-border rounded-lg p-4">
+            <p class="text-xs text-dark-muted mb-1">总用户数</p>
+            <p id="stat-total-users" class="text-2xl font-bold text-dark-primary">-</p>
+          </div>
+          <div class="bg-dark-surface border border-dark-border rounded-lg p-4">
+            <p class="text-xs text-dark-muted mb-1">活跃用户</p>
+            <p id="stat-active-users" class="text-2xl font-bold text-dark-success">-</p>
+          </div>
+          <div class="bg-dark-surface border border-dark-border rounded-lg p-4">
+            <p class="text-xs text-dark-muted mb-1">总请求数</p>
+            <p id="stat-total-requests" class="text-2xl font-bold text-dark-warn">-</p>
+          </div>
+          <div class="bg-dark-surface border border-dark-border rounded-lg p-4">
+            <p class="text-xs text-dark-muted mb-1">总 Token 消耗</p>
+            <p id="stat-total-tokens" class="text-2xl font-bold">-</p>
+          </div>
+          <div class="bg-dark-surface border border-dark-border rounded-lg p-4">
+            <p class="text-xs text-dark-muted mb-1">今日请求</p>
+            <p id="stat-today-requests" class="text-2xl font-bold text-dark-primary">-</p>
+          </div>
+          <div class="bg-dark-surface border border-dark-border rounded-lg p-4">
+            <p class="text-xs text-dark-muted mb-1">今日 Token</p>
+            <p id="stat-today-tokens" class="text-2xl font-bold text-dark-warn">-</p>
+          </div>
+        </div>
+        <h3 class="text-sm font-semibold mb-3">用量排行</h3>
+        <div class="bg-dark-surface border border-dark-border rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead><tr class="border-b border-dark-border text-dark-muted text-xs">
+              <th class="text-left px-4 py-2">用户</th>
+              <th class="text-right px-4 py-2">总请求</th>
+              <th class="text-right px-4 py-2">总 Token</th>
+              <th class="text-right px-4 py-2">今日 Token</th>
+            </tr></thead>
+            <tbody id="top-users-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 用户管理 -->
+      <div id="page-users" class="p-6 fade-in hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold">用户管理</h2>
+          <button onclick="showAddUserModal()" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-3 py-1.5 text-xs font-medium transition-colors">
+            + 添加用户
+          </button>
+        </div>
+        <div class="bg-dark-surface border border-dark-border rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead><tr class="border-b border-dark-border text-dark-muted text-xs">
+              <th class="text-left px-4 py-2">用户名</th>
+              <th class="text-left px-4 py-2">角色</th>
+              <th class="text-left px-4 py-2">状态</th>
+              <th class="text-left px-4 py-2">API Key</th>
+              <th class="text-right px-4 py-2">每日限额</th>
+              <th class="text-right px-4 py-2">今日/总量</th>
+              <th class="text-left px-4 py-2">备注</th>
+              <th class="text-center px-4 py-2">操作</th>
+            </tr></thead>
+            <tbody id="users-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 请求日志 -->
+      <div id="page-logs" class="p-6 fade-in hidden">
+        <h2 class="text-lg font-bold mb-4">请求日志</h2>
+        <div class="bg-dark-surface border border-dark-border rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead><tr class="border-b border-dark-border text-dark-muted text-xs">
+              <th class="text-left px-4 py-2">时间</th>
+              <th class="text-left px-4 py-2">用户</th>
+              <th class="text-left px-4 py-2">模型</th>
+              <th class="text-right px-4 py-2">输入</th>
+              <th class="text-right px-4 py-2">输出</th>
+              <th class="text-right px-4 py-2">总计</th>
+              <th class="text-right px-4 py-2">耗时</th>
+              <th class="text-left px-4 py-2">状态</th>
+              <th class="text-center px-4 py-2">详情</th>
+            </tr></thead>
+            <tbody id="logs-table"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-center mt-4 gap-2">
+          <button onclick="loadLogs('prev')" id="logs-prev" class="px-3 py-1 text-xs bg-dark-surface border border-dark-border rounded hover:bg-dark-bg disabled:opacity-30" disabled>上一页</button>
+          <span id="logs-page-info" class="text-xs text-dark-muted px-2 py-1"></span>
+          <button onclick="loadLogs('next')" id="logs-next" class="px-3 py-1 text-xs bg-dark-surface border border-dark-border rounded hover:bg-dark-bg disabled:opacity-30">下一页</button>
+        </div>
+      </div>
+
+      <!-- 系统设置 -->
+      <div id="page-settings" class="p-6 fade-in hidden">
+        <h2 class="text-lg font-bold mb-4">系统设置</h2>
+
+        <!-- API 配置列表 -->
+        <div class="mb-6">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-medium text-dark-text">API 配置</h3>
+            <button onclick="addApiConfig()" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-3 py-1 text-xs font-medium transition-colors">+ 添加配置</button>
+          </div>
+          <div id="api-configs-list" class="space-y-3 max-w-2xl"></div>
+        </div>
+
+        <!-- 其他设置 -->
+        <div class="bg-dark-surface border border-dark-border rounded-lg p-6 max-w-2xl space-y-4">
+          <h3 class="text-sm font-medium text-dark-text mb-2">其他设置</h3>
+          <div>
+            <label class="block text-xs text-dark-muted mb-1">新用户默认每日 Token 限额</label>
+            <input id="setting-default-limit" type="number" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary" placeholder="1000000">
+          </div>
+          <div class="flex items-center gap-3">
+            <button onclick="saveSettings()" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-4 py-2 text-sm font-medium transition-colors">保存设置</button>
+            <span id="settings-msg" class="text-xs text-dark-success hidden">已保存</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 日志详情弹窗 -->
+  <div id="log-detail-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="bg-dark-surface border border-dark-border rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-dark-border">
+        <h3 class="text-sm font-bold">请求详情</h3>
+        <button onclick="document.getElementById('log-detail-modal').classList.add('hidden')" class="text-dark-muted hover:text-dark-text text-lg">&times;</button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-5 space-y-4">
+        <div class="grid grid-cols-4 gap-3 text-xs">
+          <div><span class="text-dark-muted">用户</span><p id="detail-user" class="mt-0.5 font-medium">-</p></div>
+          <div><span class="text-dark-muted">模型</span><p id="detail-model" class="mt-0.5 font-medium">-</p></div>
+          <div><span class="text-dark-muted">时间</span><p id="detail-time" class="mt-0.5 font-medium">-</p></div>
+          <div><span class="text-dark-muted">Token</span><p id="detail-tokens" class="mt-0.5 font-medium">-</p></div>
+        </div>
+        <div>
+          <p class="text-xs text-dark-muted mb-1.5">输入内容（用户发送）</p>
+          <div id="detail-request" class="bg-dark-bg border border-dark-border rounded p-3 text-xs leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto break-all">无</div>
+        </div>
+        <div>
+          <p class="text-xs text-dark-muted mb-1.5">输出内容（模型回复）</p>
+          <div id="detail-response" class="bg-dark-bg border border-dark-border rounded p-3 text-xs leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto break-all">无</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 添加/编辑用户弹窗 -->
+  <div id="user-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 hidden">
+    <div class="bg-dark-surface border border-dark-border rounded-lg p-6 w-full max-w-md">
+      <h3 id="modal-title" class="text-sm font-bold mb-4">添加用户</h3>
+      <input type="hidden" id="modal-user-id">
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-dark-muted mb-1">用户名</label>
+          <input id="modal-username" type="text" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+        </div>
+        <div>
+          <label class="block text-xs text-dark-muted mb-1">邮箱</label>
+          <input id="modal-email" type="email" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+        </div>
+        <div>
+          <label class="block text-xs text-dark-muted mb-1">密码<span id="modal-pw-hint" class="text-dark-muted"> (留空不修改)</span></label>
+          <input id="modal-password" type="password" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-dark-muted mb-1">角色</label>
+            <select id="modal-role" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text">
+              <option value="user">用户</option>
+              <option value="admin">管理员</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-dark-muted mb-1">状态</label>
+            <select id="modal-status" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text">
+              <option value="active">启用</option>
+              <option value="disabled">停用</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-dark-muted mb-1">每日 Token 限额</label>
+          <input id="modal-limit" type="number" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary" value="1000000">
+        </div>
+        <div>
+          <label class="block text-xs text-dark-muted mb-1">备注</label>
+          <input id="modal-note" type="text" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+        </div>
+        <div id="modal-error" class="text-xs text-dark-danger hidden"></div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button onclick="closeUserModal()" class="px-4 py-2 text-sm text-dark-muted hover:text-dark-text border border-dark-border rounded transition-colors">取消</button>
+          <button onclick="saveUser()" class="px-4 py-2 text-sm bg-dark-primary hover:bg-dark-primary/80 text-white rounded font-medium transition-colors">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const BASE = location.origin
+let token = localStorage.getItem('admin_token') || ''
+let logsOffset = 0
+const LOGS_LIMIT = 30
+let currentPage = 'dashboard'
+let refreshTimer = null
+
+// ── API 调用 ──────────────────────────────────────
+async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers }
+  if (token) headers['Authorization'] = 'Bearer ' + token
+  const res = await fetch(BASE + path, { ...options, headers })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || '请求失败')
+  return data
+}
+
+// ── 登录/登出 ──────────────────────────────────────
+async function doLogin() {
+  const username = document.getElementById('login-username').value.trim()
+  const password = document.getElementById('login-password').value
+  const errEl = document.getElementById('login-error')
+  try {
+    const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) })
+    if (data.user.role !== 'admin') { errEl.textContent = '需要管理员账号'; errEl.classList.remove('hidden'); return }
+    token = data.token
+    localStorage.setItem('admin_token', token)
+    document.getElementById('current-user').textContent = data.user.username
+    showMainPage()
+  } catch (e) {
+    errEl.textContent = e.message; errEl.classList.remove('hidden')
+  }
+}
+
+function doLogout() {
+  token = ''
+  localStorage.removeItem('admin_token')
+  document.getElementById('login-page').classList.remove('hidden')
+  document.getElementById('main-page').classList.add('hidden')
+}
+
+// ── 页面切换 ──────────────────────────────────────
+function showMainPage() {
+  document.getElementById('login-page').classList.add('hidden')
+  document.getElementById('main-page').classList.remove('hidden')
+  showPage('dashboard')
+}
+
+function showPage(name) {
+  document.querySelectorAll('[id^="page-"]').forEach(el => el.classList.add('hidden'))
+  document.getElementById('page-' + name).classList.remove('hidden')
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('bg-dark-bg', btn.dataset.nav === name)
+    btn.classList.toggle('text-dark-primary', btn.dataset.nav === name)
+  })
+  currentPage = name
+  if (name === 'dashboard') loadDashboard()
+  if (name === 'users') loadUsers()
+  if (name === 'logs') { logsOffset = 0; loadLogs() }
+  if (name === 'settings') loadSettings()
+  // 自动刷新
+  if (refreshTimer) clearInterval(refreshTimer)
+  refreshTimer = setInterval(() => {
+    if (currentPage === 'dashboard') loadDashboard()
+    if (currentPage === 'users') loadUsers()
+    if (currentPage === 'logs') loadLogs()
+  }, 5000)
+}
+
+// ── 仪表盘 ──────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const [stats, top] = await Promise.all([
+      api('/api/admin/stats/overview'),
+      api('/api/admin/stats/top-users')
+    ])
+    document.getElementById('stat-total-users').textContent = stats.totalUsers
+    document.getElementById('stat-active-users').textContent = stats.activeUsers
+    document.getElementById('stat-total-requests').textContent = fmtNum(stats.totalRequests)
+    document.getElementById('stat-total-tokens').textContent = fmtNum(stats.totalTokens)
+    document.getElementById('stat-today-requests').textContent = fmtNum(stats.todayRequests)
+    document.getElementById('stat-today-tokens').textContent = fmtNum(stats.todayTokens)
+
+    const tbody = document.getElementById('top-users-table')
+    tbody.innerHTML = top.users.map(u => `
+      <tr class="border-b border-dark-border/50 hover:bg-dark-bg/50">
+        <td class="px-4 py-2">${esc(u.username)}</td>
+        <td class="px-4 py-2 text-right">${fmtNum(u.total_requests)}</td>
+        <td class="px-4 py-2 text-right">${fmtNum(u.total_tokens_used)}</td>
+        <td class="px-4 py-2 text-right">${fmtNum(u.tokens_used_today)}</td>
+      </tr>
+    `).join('')
+  } catch (e) {
+    if (e.message.includes('过期') || e.message.includes('未登录')) doLogout()
+  }
+}
+
+// ── 用户管理 ──────────────────────────────────────
+async function loadUsers() {
+  try {
+    const data = await api('/api/admin/users')
+    const tbody = document.getElementById('users-table')
+    tbody.innerHTML = data.users.map(u => `
+      <tr class="border-b border-dark-border/50 hover:bg-dark-bg/50">
+        <td class="px-4 py-2 font-medium">${esc(u.username)}</td>
+        <td class="px-4 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] ${u.role === 'admin' ? 'bg-dark-primary/20 text-dark-primary' : 'bg-dark-muted/20 text-dark-muted'}">${u.role}</span></td>
+        <td class="px-4 py-2"><span class="px-1.5 py-0.5 rounded text-[10px] ${u.status === 'active' ? 'bg-dark-success/20 text-dark-success' : 'bg-dark-danger/20 text-dark-danger'}">${u.status === 'active' ? '启用' : '停用'}</span></td>
+        <td class="px-4 py-2"><code class="text-[10px] text-dark-muted bg-dark-bg px-1.5 py-0.5 rounded cursor-pointer" onclick="copyText('${u.api_key}')" title="点击复制">${u.api_key.slice(0, 12)}...</code></td>
+        <td class="px-4 py-2 text-right text-xs">${fmtNum(u.max_tokens_per_day)}</td>
+        <td class="px-4 py-2 text-right text-xs">${fmtNum(u.tokens_used_today)} / ${fmtNum(u.total_tokens_used)}</td>
+        <td class="px-4 py-2 text-xs text-dark-muted">${esc(u.note || '')}</td>
+        <td class="px-4 py-2 text-center">
+          <div class="flex items-center justify-center gap-1">
+            <button onclick='editUser(${JSON.stringify(u)})' class="text-[10px] text-dark-primary hover:underline">编辑</button>
+            <button onclick="resetUsage('${u.id}')" class="text-[10px] text-dark-warn hover:underline">重置</button>
+            <button onclick="regenKey('${u.id}')" class="text-[10px] text-dark-success hover:underline">换Key</button>
+            ${u.role !== 'admin' ? `<button onclick="deleteUser('${u.id}','${esc(u.username)}')" class="text-[10px] text-dark-danger hover:underline">删除</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `).join('')
+  } catch (e) {
+    if (e.message.includes('过期')) doLogout()
+  }
+}
+
+function showAddUserModal() {
+  document.getElementById('modal-title').textContent = '添加用户'
+  document.getElementById('modal-user-id').value = ''
+  document.getElementById('modal-username').value = ''
+  document.getElementById('modal-email').value = ''
+  document.getElementById('modal-password').value = ''
+  document.getElementById('modal-role').value = 'user'
+  document.getElementById('modal-status').value = 'active'
+  document.getElementById('modal-limit').value = '1000000'
+  document.getElementById('modal-note').value = ''
+  document.getElementById('modal-pw-hint').classList.add('hidden')
+  document.getElementById('modal-error').classList.add('hidden')
+  document.getElementById('user-modal').classList.remove('hidden')
+}
+
+function editUser(u) {
+  document.getElementById('modal-title').textContent = '编辑用户'
+  document.getElementById('modal-user-id').value = u.id
+  document.getElementById('modal-username').value = u.username
+  document.getElementById('modal-email').value = u.email || ''
+  document.getElementById('modal-password').value = ''
+  document.getElementById('modal-role').value = u.role
+  document.getElementById('modal-status').value = u.status
+  document.getElementById('modal-limit').value = u.max_tokens_per_day
+  document.getElementById('modal-note').value = u.note || ''
+  document.getElementById('modal-pw-hint').classList.remove('hidden')
+  document.getElementById('modal-error').classList.add('hidden')
+  document.getElementById('user-modal').classList.remove('hidden')
+}
+
+function closeUserModal() {
+  document.getElementById('user-modal').classList.add('hidden')
+}
+
+async function saveUser() {
+  const id = document.getElementById('modal-user-id').value
+  const body = {
+    username: document.getElementById('modal-username').value.trim(),
+    email: document.getElementById('modal-email').value.trim(),
+    password: document.getElementById('modal-password').value,
+    role: document.getElementById('modal-role').value,
+    status: document.getElementById('modal-status').value,
+    maxTokensPerDay: parseInt(document.getElementById('modal-limit').value) || 1000000,
+    note: document.getElementById('modal-note').value.trim(),
+  }
+  if (!body.password && !id) { showModalError('密码不能为空'); return }
+  if (!body.password) delete body.password
+
+  try {
+    if (id) {
+      await api('/api/admin/users/' + id, { method: 'PUT', body: JSON.stringify(body) })
+    } else {
+      await api('/api/admin/users', { method: 'POST', body: JSON.stringify(body) })
+    }
+    closeUserModal()
+    loadUsers()
+  } catch (e) {
+    showModalError(e.message)
+  }
+}
+
+function showModalError(msg) {
+  const el = document.getElementById('modal-error')
+  el.textContent = msg; el.classList.remove('hidden')
+}
+
+async function deleteUser(id, name) {
+  if (!confirm(`确认删除用户 "${name}"？此操作不可撤销。`)) return
+  try { await api('/api/admin/users/' + id, { method: 'DELETE' }); loadUsers() } catch (e) { alert(e.message) }
+}
+
+async function resetUsage(id) {
+  try { await api('/api/admin/users/' + id + '/reset-usage', { method: 'POST' }); loadUsers() } catch (e) { alert(e.message) }
+}
+
+async function regenKey(id) {
+  if (!confirm('确认重新生成 API Key？旧 Key 将立即失效。')) return
+  try {
+    const data = await api('/api/admin/users/' + id + '/regenerate-key', { method: 'POST' })
+    alert('新 API Key:\n' + data.apiKey)
+    loadUsers()
+  } catch (e) { alert(e.message) }
+}
+
+// ── 请求日志 ──────────────────────────────────────
+async function loadLogs(dir) {
+  if (dir === 'next') logsOffset += LOGS_LIMIT
+  if (dir === 'prev') logsOffset = Math.max(0, logsOffset - LOGS_LIMIT)
+  try {
+    const data = await api(`/api/admin/stats/logs?limit=${LOGS_LIMIT}&offset=${logsOffset}`)
+    const tbody = document.getElementById('logs-table')
+    window._logsCache = data.logs
+    tbody.innerHTML = data.logs.map((l, i) => `
+      <tr class="border-b border-dark-border/50 hover:bg-dark-bg/50">
+        <td class="px-4 py-2 text-xs text-dark-muted whitespace-nowrap">${fmtTime(l.created_at)}</td>
+        <td class="px-4 py-2 text-xs">${esc(l.username || '-')}</td>
+        <td class="px-4 py-2 text-xs">${esc(l.model)}</td>
+        <td class="px-4 py-2 text-xs text-right">${fmtNum(l.tokens_in)}</td>
+        <td class="px-4 py-2 text-xs text-right">${fmtNum(l.tokens_out)}</td>
+        <td class="px-4 py-2 text-xs text-right font-medium">${fmtNum(l.total_tokens)}</td>
+        <td class="px-4 py-2 text-xs text-right">${l.duration_ms ? l.duration_ms + 'ms' : '-'}</td>
+        <td class="px-4 py-2"><span class="text-[10px] px-1.5 py-0.5 rounded ${l.status === 'success' ? 'bg-dark-success/20 text-dark-success' : 'bg-dark-danger/20 text-dark-danger'}">${l.status}</span></td>
+        <td class="px-4 py-2 text-center"><button onclick="showLogDetail(${i})" class="text-[10px] text-dark-primary hover:underline">查看</button></td>
+      </tr>
+    `).join('')
+    if (data.logs.length === 0) tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-dark-muted text-xs">暂无记录</td></tr>'
+
+    document.getElementById('logs-prev').disabled = logsOffset === 0
+    document.getElementById('logs-next').disabled = logsOffset + LOGS_LIMIT >= data.total
+    document.getElementById('logs-page-info').textContent = `${logsOffset + 1}-${Math.min(logsOffset + LOGS_LIMIT, data.total)} / ${data.total}`
+  } catch (e) {
+    if (e.message.includes('过期')) doLogout()
+  }
+}
+
+function showLogDetail(index) {
+  const l = window._logsCache[index]
+  if (!l) return
+  document.getElementById('detail-user').textContent = l.username || '-'
+  document.getElementById('detail-model').textContent = l.model || '-'
+  document.getElementById('detail-time').textContent = fmtTime(l.created_at)
+  document.getElementById('detail-tokens').textContent = `${fmtNum(l.tokens_in)} in / ${fmtNum(l.tokens_out)} out / ${fmtNum(l.total_tokens)} total`
+
+  let reqDisplay = '无'
+  if (l.request_body) {
+    try {
+      const req = JSON.parse(l.request_body)
+      const msgs = req.messages || []
+      reqDisplay = msgs.map(m => `[${m.role}]\n${m.content}`).join('\n\n---\n\n')
+      if (!reqDisplay) reqDisplay = l.request_body
+    } catch {
+      reqDisplay = l.request_body
+    }
+  }
+  document.getElementById('detail-request').textContent = reqDisplay
+  document.getElementById('detail-response').textContent = l.response_body || '无'
+  document.getElementById('log-detail-modal').classList.remove('hidden')
+}
+
+// ── 系统设置 ──────────────────────────────────────
+let apiConfigs = []
+
+function renderApiConfigs() {
+  const container = document.getElementById('api-configs-list')
+  if (apiConfigs.length === 0) {
+    container.innerHTML = '<div class="text-xs text-dark-muted py-4 text-center border border-dashed border-dark-border rounded-lg">暂无 API 配置，点击右上角"+ 添加配置"</div>'
+    return
+  }
+  container.innerHTML = apiConfigs.map((c, i) => `
+    <div class="bg-dark-surface border border-dark-border rounded-lg p-4 fade-in">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-medium text-dark-text">#${i + 1}</span>
+          <input type="text" value="${esc(c.name || '')}" placeholder="配置名称（可选）"
+            onchange="apiConfigs[${i}].name=this.value"
+            class="bg-dark-bg border border-dark-border rounded px-2 py-1 text-xs text-dark-text w-40 focus:border-dark-primary">
+          <label class="flex items-center gap-1 text-xs text-dark-muted cursor-pointer ml-2">
+            <input type="checkbox" ${c.enabled !== false ? 'checked' : ''} onchange="apiConfigs[${i}].enabled=this.checked" class="accent-dark-primary">
+            启用
+          </label>
+        </div>
+        <button onclick="removeApiConfig(${i})" class="text-dark-danger hover:text-red-400 text-xs transition-colors" title="删除此配置">删除</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[10px] text-dark-muted mb-1">API 端点</label>
+          <input type="text" value="${esc(c.endpoint || '')}" placeholder="https://api.openai.com"
+            onchange="apiConfigs[${i}].endpoint=this.value.trim()"
+            class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+        </div>
+        <div>
+          <label class="block text-[10px] text-dark-muted mb-1">API Key</label>
+          <input type="password" value="${esc(c.apiKey || '')}" placeholder="sk-xxx"
+            onchange="apiConfigs[${i}].apiKey=this.value.trim()"
+            class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary">
+        </div>
+      </div>
+    </div>
+  `).join('')
+}
+
+function addApiConfig() {
+  apiConfigs.push({ name: '', endpoint: '', apiKey: '', enabled: true })
+  renderApiConfigs()
+}
+
+function removeApiConfig(index) {
+  if (!confirm('确定删除此 API 配置？')) return
+  apiConfigs.splice(index, 1)
+  renderApiConfigs()
+}
+
+async function loadSettings() {
+  try {
+    const data = await api('/api/admin/settings')
+    // 加载多组 API 配置
+    if (data.settings.api_configs) {
+      try { apiConfigs = JSON.parse(data.settings.api_configs) } catch { apiConfigs = [] }
+    } else if (data.settings.api_endpoint || data.settings.api_key) {
+      // 兼容旧的单组配置：迁移为数组
+      apiConfigs = [{ name: '默认', endpoint: data.settings.api_endpoint || '', apiKey: data.settings.api_key || '', enabled: true }]
+    } else {
+      apiConfigs = []
+    }
+    renderApiConfigs()
+    document.getElementById('setting-default-limit').value = data.settings.default_daily_token_limit || '1000000'
+  } catch (e) {
+    if (e.message.includes('过期')) doLogout()
+  }
+}
+
+async function saveSettings() {
+  try {
+    await api('/api/admin/settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        settings: {
+          api_configs: JSON.stringify(apiConfigs),
+          default_daily_token_limit: document.getElementById('setting-default-limit').value,
+        }
+      })
+    })
+    const msg = document.getElementById('settings-msg')
+    msg.classList.remove('hidden')
+    setTimeout(() => msg.classList.add('hidden'), 2000)
+  } catch (e) { alert(e.message) }
+}
+
+// ── 工具函数 ──────────────────────────────────────
+function fmtNum(n) { return n == null ? '0' : Number(n).toLocaleString() }
+function fmtTime(t) { return t ? t.replace('T', ' ').slice(0, 19) : '-' }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
+function copyText(t) { navigator.clipboard.writeText(t); }
+
+// ── 启动检查 ──────────────────────────────────────
+document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin() })
+document.getElementById('login-username').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin() })
+
+if (token) {
+  api('/api/auth/me').then(data => {
+    if (data.user.role === 'admin') {
+      document.getElementById('current-user').textContent = data.user.username
+      showMainPage()
+    } else { doLogout() }
+  }).catch(() => doLogout())
+} 
+</script>
+</body>
+</html>

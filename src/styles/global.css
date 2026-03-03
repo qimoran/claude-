@@ -1,0 +1,408 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ── 深色主题（默认） ── */
+/* Tailwind 用的颜色变量：空格分隔 RGB（支持 /alpha 修饰符） */
+:root {
+  --c-bg: 30 30 30;
+  --c-surface: 37 37 38;
+  --c-surface-light: 45 45 45;
+  --c-border: 62 62 66;
+  --c-primary: 86 156 214;
+  --c-primary-light: 108 182 255;
+  --c-primary-dark: 64 120 192;
+  --c-accent: 197 134 192;
+  --c-accent-light: 212 160 212;
+  --c-text: 212 212 212;
+  --c-text-muted: 133 133 133;
+  --c-text-dim: 90 90 90;
+  --c-glow: rgba(86, 156, 214, 0.08);
+  --c-glow-pink: rgba(197, 134, 192, 0.08);
+  --c-code-bg: #1e1e1e;
+  --c-code-inline-bg: rgba(255, 255, 255, 0.06);
+  --c-code-text: #ededed;
+  --c-table-header-bg: rgba(255, 255, 255, 0.03);
+  --c-table-header-text: #a1a1aa;
+  --c-table-cell-text: #8b949e;
+  --c-table-hover: #2d2d2d;
+  --c-scrollbar-thumb: rgba(255, 255, 255, 0);
+  --c-scrollbar-thumb-hover: rgba(255, 255, 255, 0.1);
+  --c-scrollbar-thumb-active: rgba(255, 255, 255, 0.2);
+  --c-link: #569cd6;
+  --c-link-hover: #79c0ff;
+  --c-blockquote-border: #3e3e42;
+  --c-blockquote-text: #858585;
+  --c-input-area-bg: #252526;
+  --c-input-area-border: #3e3e42;
+  --c-tool-card-bg: #2d2d2d;
+  --c-tool-card-border: #3e3e42;
+  --c-select-bg: #252526;
+  --c-select-text: #d4d4d4;
+  --c-white-alpha-4: rgba(255, 255, 255, 0.04);
+  --c-hover-row: rgba(255, 255, 255, 0.015);
+  --c-hover-overlay: rgba(255, 255, 255, 0.1);
+  --c-tool-green: #4ade80;
+  --c-tool-green-text: #86efac;
+  --c-tool-yellow-border: rgba(234, 179, 8, 0.6);
+  --c-tool-yellow-bg: rgba(234, 179, 8, 0.05);
+  --c-tool-yellow-text: #fde047;
+  --c-confirm-divider: rgba(234, 179, 8, 0.3);
+  --c-code-block-bg: #1e1e1e;
+}
+
+/* ── 米白色浅色主题 ── */
+.theme-light {
+  --c-bg: 250 248 245;
+  --c-surface: 240 236 230;
+  --c-surface-light: 232 227 219;
+  --c-border: 213 207 198;
+  --c-primary: 37 99 235;
+  --c-primary-light: 59 130 246;
+  --c-primary-dark: 29 78 216;
+  --c-accent: 147 51 234;
+  --c-accent-light: 168 85 247;
+  --c-text: 31 41 55;
+  --c-text-muted: 107 114 128;
+  --c-text-dim: 156 163 175;
+  --c-glow: rgba(37, 99, 235, 0.06);
+  --c-glow-pink: rgba(147, 51, 234, 0.06);
+  --c-code-bg: #f3f0eb;
+  --c-code-inline-bg: rgba(0, 0, 0, 0.05);
+  --c-code-text: #1f2937;
+  --c-table-header-bg: rgba(0, 0, 0, 0.03);
+  --c-table-header-text: #6b7280;
+  --c-table-cell-text: #4b5563;
+  --c-table-hover: #ede9e3;
+  --c-scrollbar-thumb: rgba(0, 0, 0, 0);
+  --c-scrollbar-thumb-hover: rgba(0, 0, 0, 0.12);
+  --c-scrollbar-thumb-active: rgba(0, 0, 0, 0.2);
+  --c-link: #2563eb;
+  --c-link-hover: #1d4ed8;
+  --c-blockquote-border: #d5cfc6;
+  --c-blockquote-text: #6b7280;
+  --c-input-area-bg: #f0ece6;
+  --c-input-area-border: #d5cfc6;
+  --c-tool-card-bg: #ede9e3;
+  --c-tool-card-border: #d5cfc6;
+  --c-select-bg: #f0ece6;
+  --c-select-text: #1f2937;
+  --c-white-alpha-4: rgba(0, 0, 0, 0.04);
+  --c-hover-row: rgba(0, 0, 0, 0.015);
+  --c-hover-overlay: rgba(0, 0, 0, 0.06);
+  --c-tool-green: #15803d;
+  --c-tool-green-text: #166534;
+  --c-tool-yellow-border: rgba(202, 138, 4, 0.4);
+  --c-tool-yellow-bg: rgba(202, 138, 4, 0.06);
+  --c-tool-yellow-text: #a16207;
+  --c-confirm-divider: rgba(202, 138, 4, 0.2);
+  --c-code-block-bg: #f3f0eb;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: rgb(var(--c-bg));
+  color: rgb(var(--c-text));
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar（平时完全透明，hover微现） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--c-scrollbar-thumb);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 5px;
+}
+
+:hover::-webkit-scrollbar-thumb {
+  background: var(--c-scrollbar-thumb-hover);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-scrollbar-thumb-active);
+}
+
+/* 消息列表和左侧面板的容器级防穿透滚动条 */
+.msg-container::-webkit-scrollbar {
+  width: 14px;
+}
+
+.msg-container::-webkit-scrollbar-thumb {
+  border-width: 4px;
+}
+
+/* Title bar drag region */
+.titlebar {
+  -webkit-app-region: drag;
+}
+
+.titlebar button,
+.titlebar select {
+  -webkit-app-region: no-drag;
+}
+
+/* Code block styling */
+.prose pre {
+  background-color: var(--c-code-bg) !important;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  border: 1px solid rgb(var(--c-border));
+}
+
+/* 引入高级等宽编程字体 */
+.prose code,
+.prose pre,
+.font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-variant-ligatures: normal;
+  /* 开启连字 */
+}
+
+.prose code {
+  background-color: var(--c-code-inline-bg);
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: var(--c-code-text);
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+  border: none;
+}
+
+/* Table styling */
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.prose th {
+  background-color: var(--c-table-header-bg);
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgb(var(--c-border));
+  font-weight: 500;
+  color: var(--c-table-header-text);
+}
+
+.prose td {
+  color: var(--c-table-cell-text);
+}
+
+.prose tr:hover td {
+  background-color: var(--c-table-hover);
+}
+
+/* Link styling */
+.prose a {
+  color: var(--c-link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.prose a:hover {
+  color: var(--c-link-hover);
+  text-decoration: underline;
+}
+
+/* Blockquote */
+.prose blockquote {
+  border-left: 3px solid var(--c-blockquote-border);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--c-blockquote-text);
+  font-style: italic;
+}
+
+/* Horizontal rule */
+.prose hr {
+  border-color: rgb(var(--c-border));
+  margin: 1rem 0;
+}
+
+/* Animation */
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(34, 211, 238, 0.06) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* Select / Option 深色背景 */
+select {
+  background-color: var(--c-select-bg);
+  color: var(--c-select-text);
+}
+
+select option {
+  background-color: var(--c-select-bg);
+  color: var(--c-select-text);
+}
+
+select option:checked {
+  background-color: rgb(var(--c-primary));
+  color: #fff;
+}
+
+/* 字体大小 CSS 变量驱动 */
+.msg-container .prose {
+  font-size: var(--fs-chat, 14px);
+  line-height: 1.6;
+}
+
+/* 覆盖 Tailwind Typography 的夸张边距，使排版紧凑高级 */
+.msg-container .prose p,
+.msg-container .prose ul,
+.msg-container .prose ol {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.msg-container .prose> :first-child {
+  margin-top: 0;
+}
+
+.msg-container .prose> :last-child {
+  margin-bottom: 0;
+}
+
+.msg-container .prose code {
+  font-size: var(--fs-code, 13px);
+}
+
+.msg-container .not-prose pre,
+.msg-container .not-prose code {
+  font-size: var(--fs-code, 13px);
+}
+
+.msg-container pre.font-mono,
+.msg-container .font-mono {
+  font-size: var(--fs-code, 13px);
+}
+
+/* Smooth transitions */
+.transition-panel {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 输入区域容器：底部柔和分割 */
+.input-area-wrap {
+  border-top: 1px solid var(--c-input-area-border);
+  background: var(--c-input-area-bg);
+}
+
+/* 工具调用/结果卡片优化 */
+.tool-card {
+  border-radius: 6px;
+  border: 1px solid var(--c-tool-card-border);
+  background: var(--c-tool-card-bg);
+  transition: border-color 0.2s;
+}
+
+.tool-card:hover {
+  border-color: rgb(var(--c-primary));
+}
+
+/* 操作按钮微交互 */
+.action-btn {
+  transition: all 0.1s ease;
+}
+
+.action-btn:active {
+  transform: scale(0.97);
+}
+
+/* 下拉菜单优化 */
+.dropdown-menu {
+  animation: dropdown-in 0.1s ease-out;
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 渐变文字（替换为单一颜色） */
+.gradient-text {
+  color: rgb(var(--c-text));
+}
+
+/* ── 浅色主题：覆盖 prose-invert 为正常深色文字 ── */
+.theme-light .prose-invert {
+  --tw-prose-body: #1f2937;
+  --tw-prose-headings: #111827;
+  --tw-prose-lead: #4b5563;
+  --tw-prose-links: #2563eb;
+  --tw-prose-bold: #111827;
+  --tw-prose-counters: #6b7280;
+  --tw-prose-bullets: #9ca3af;
+  --tw-prose-hr: #d5cfc6;
+  --tw-prose-quotes: #4b5563;
+  --tw-prose-quote-borders: #d5cfc6;
+  --tw-prose-captions: #6b7280;
+  --tw-prose-code: #111827;
+  --tw-prose-pre-code: #1f2937;
+  --tw-prose-pre-bg: #f3f0eb;
+  --tw-prose-th-borders: #d5cfc6;
+  --tw-prose-td-borders: #e5e0d8;
+}

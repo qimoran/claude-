@@ -1,0 +1,47 @@
+const fs = require('node:fs/promises')
+const path = require('node:path')
+const { execFileSync } = require('node:child_process')
+
+function killProcessOnWindows(imageName) {
+  if (process.platform !== 'win32') return
+  try {
+    execFileSync('taskkill', ['/IM', imageName, '/F', '/T'], { stdio: 'ignore' })
+  } catch {
+    // ignore: process may not exist
+  }
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function removeWithRetry(targetPath, attempts = 8) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await fs.rm(targetPath, { recursive: true, force: true })
+      return
+    } catch (error) {
+      const code = error && typeof error === 'object' ? error.code : ''
+      const retryable = code === 'EPERM' || code === 'EBUSY' || code === 'ENOTEMPTY'
+      if (!retryable || i === attempts - 1) throw error
+      await sleep(300 * (i + 1))
+    }
+  }
+}
+
+async function main() {
+  const root = path.resolve(__dirname, '..')
+  const releaseDir = path.join(root, 'release')
+  const winUnpackedDir = path.join(releaseDir, 'win-unpacked')
+
+  killProcessOnWindows('Claude Code GUI.exe')
+
+  await removeWithRetry(winUnpackedDir)
+  await removeWithRetry(path.join(root, 'dist'))
+  await removeWithRetry(path.join(root, 'dist-electron'))
+}
+
+main().catch((error) => {
+  console.error('[prebuild-clean] failed:', error instanceof Error ? error.message : String(error))
+  process.exit(1)
+})

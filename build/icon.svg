@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- 金碧辉煌背景渐变 -->
+    <linearGradient id="bgGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#B8860B"/>
+      <stop offset="25%" style="stop-color:#DAA520"/>
+      <stop offset="50%" style="stop-color:#FFD700"/>
+      <stop offset="75%" style="stop-color:#DAA520"/>
+      <stop offset="100%" style="stop-color:#B8860B"/>
+    </linearGradient>
+    <!-- 光泽高光 -->
+    <radialGradient id="sheen" cx="35%" cy="30%" r="60%">
+      <stop offset="0%" style="stop-color:#FFF8DC;stop-opacity:0.5"/>
+      <stop offset="50%" style="stop-color:#FFD700;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#B8860B;stop-opacity:0"/>
+    </radialGradient>
+    <!-- 金色边框渐变 -->
+    <linearGradient id="borderGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFF8DC"/>
+      <stop offset="30%" style="stop-color:#FFD700"/>
+      <stop offset="70%" style="stop-color:#DAA520"/>
+      <stop offset="100%" style="stop-color:#FFF8DC"/>
+    </linearGradient>
+    <!-- 文字深红/暗金色 -->
+    <linearGradient id="textColor" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B0000"/>
+      <stop offset="50%" style="stop-color:#660000"/>
+      <stop offset="100%" style="stop-color:#4A0000"/>
+    </linearGradient>
+    <filter id="textShadow">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#00000060"/>
+    </filter>
+    <filter id="goldGlow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
+      <feFlood flood-color="#FFD700" flood-opacity="0.3"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 最外层深金底 -->
+  <rect x="8" y="8" width="496" height="496" rx="100" ry="100" fill="#8B6914"/>
+
+  <!-- 金色渐变主背景 -->
+  <rect x="16" y="16" width="480" height="480" rx="96" ry="96" fill="url(#bgGold)"/>
+
+  <!-- 光泽叠加层 -->
+  <rect x="16" y="16" width="480" height="480" rx="96" ry="96" fill="url(#sheen)"/>
+
+  <!-- 华丽金色外边框 -->
+  <rect x="24" y="24" width="464" height="464" rx="88" ry="88" fill="none" stroke="url(#borderGold)" stroke-width="3"/>
+
+  <!-- 内侧装饰边框 -->
+  <rect x="40" y="40" width="432" height="432" rx="76" ry="76" fill="none" stroke="#FFF8DC" stroke-opacity="0.4" stroke-width="1.5"/>
+
+  <!-- 四角装饰花纹 - 左上 -->
+  <path d="M 80 60 Q 65 65 60 80" fill="none" stroke="#FFF8DC" stroke-opacity="0.6" stroke-width="2"/>
+  <path d="M 95 55 Q 70 60 55 95" fill="none" stroke="#FFF8DC" stroke-opacity="0.3" stroke-width="1.5"/>
+
+  <!-- 四角装饰花纹 - 右上 -->
+  <path d="M 432 60 Q 447 65 452 80" fill="none" stroke="#FFF8DC" stroke-opacity="0.6" stroke-width="2"/>
+  <path d="M 417 55 Q 442 60 457 95" fill="none" stroke="#FFF8DC" stroke-opacity="0.3" stroke-width="1.5"/>
+
+  <!-- 四角装饰花纹 - 左下 -->
+  <path d="M 80 452 Q 65 447 60 432" fill="none" stroke="#FFF8DC" stroke-opacity="0.6" stroke-width="2"/>
+  <path d="M 95 457 Q 70 452 55 417" fill="none" stroke="#FFF8DC" stroke-opacity="0.3" stroke-width="1.5"/>
+
+  <!-- 四角装饰花纹 - 右下 -->
+  <path d="M 432 452 Q 447 447 452 432" fill="none" stroke="#FFF8DC" stroke-opacity="0.6" stroke-width="2"/>
+  <path d="M 417 457 Q 442 452 457 417" fill="none" stroke="#FFF8DC" stroke-opacity="0.3" stroke-width="1.5"/>
+
+  <!-- 上方装饰弧线 -->
+  <path d="M 140 75 Q 256 45 372 75" fill="none" stroke="#FFF8DC" stroke-opacity="0.5" stroke-width="2"/>
+  <path d="M 170 85 Q 256 62 342 85" fill="none" stroke="#FFF8DC" stroke-opacity="0.3" stroke-width="1"/>
+
+  <!-- 下方装饰弧线 -->
+  <path d="M 140 437 Q 256 467 372 437" fill="none" stroke="#FFF8DC" stroke-opacity="0.5" stroke-width="2"/>
+  <path d="M 170 427 Q 256 450 342 427" fill="none" stroke="#FFF8DC" stroke-opacity="0.3" stroke-width="1"/>
+
+  <!-- 左右装饰点 -->
+  <circle cx="56" cy="256" r="3" fill="#FFF8DC" fill-opacity="0.5"/>
+  <circle cx="456" cy="256" r="3" fill="#FFF8DC" fill-opacity="0.5"/>
+  <circle cx="256" cy="56" r="3" fill="#FFF8DC" fill-opacity="0.5"/>
+  <circle cx="256" cy="456" r="3" fill="#FFF8DC" fill-opacity="0.5"/>
+
+  <!-- 主文字「平安」- 深红色（中国传统配色：金底红字） -->
+  <text x="256" y="305" text-anchor="middle" font-family="KaiTi, STKaiti, SimSun, serif" font-size="220" font-weight="bold" fill="url(#textColor)" filter="url(#textShadow)" letter-spacing="10">
+    平安
+  </text>
+
+  <!-- 文字金色描边 -->
+  <text x="256" y="305" text-anchor="middle" font-family="KaiTi, STKaiti, SimSun, serif" font-size="220" font-weight="bold" fill="none" stroke="#FFD700" stroke-opacity="0.25" stroke-width="1" letter-spacing="10">
+    平安
+  </text>
+</svg>
