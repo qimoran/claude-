@@ -6,6 +6,19 @@ import type { ToolInput, FileSnapshot } from './types'
 // ── 危险命令判断 ────────────────────────────────────────
 const SAFE_TOOLS = new Set(['read_file', 'list_dir', 'search_files'])
 
+export interface AnthropicToolInputSchema {
+  type: 'object'
+  properties: Record<string, unknown>
+  required?: string[]
+  [key: string]: unknown
+}
+
+export interface AnthropicToolDefinition {
+  name: string
+  description: string
+  input_schema: AnthropicToolInputSchema
+}
+
 const DANGEROUS_CMD_PATTERNS = [
   /\brm\s+(-[a-z]*f|-[a-z]*r|--force|--recursive).*\//i,
   /\brm\s+-rf\s+\//i,
@@ -32,7 +45,7 @@ export function isToolSafe(toolName: string, input: ToolInput): boolean {
 }
 
 // ── 工具定义（Anthropic 格式）──────────────────────────
-export const TOOLS_ANTHROPIC = [
+export const TOOLS_ANTHROPIC: AnthropicToolDefinition[] = [
   {
     name: 'bash',
     description: '在工作目录执行 shell 命令。用于运行脚本、安装依赖、编译、测试、git 操作等。',
@@ -106,8 +119,8 @@ export const TOOLS_ANTHROPIC = [
 ]
 
 // ── 工具定义（OpenAI 格式）──────────────────────────────
-export function convertToolsToOpenAI() {
-  return TOOLS_ANTHROPIC.map((tool) => ({
+export function convertToolsToOpenAI(tools: AnthropicToolDefinition[] = TOOLS_ANTHROPIC) {
+  return tools.map((tool) => ({
     type: 'function' as const,
     function: {
       name: tool.name,

@@ -6,6 +6,7 @@ import type {
   AnthropicMessage,
 } from './types'
 import { convertToolsToOpenAI } from './tools'
+import type { AnthropicToolDefinition } from './tools'
 
 // ── 端点解析 ─────────────────────────────────────────────
 export function parseEndpoint(endpoint: string): { protocol: string; hostname: string; port: number; basePath: string } {
@@ -268,6 +269,7 @@ export function callOpenAIStream(
   onImage: (url: string, alt?: string) => void,
   onUsage: (inputTokens: number, outputTokens: number) => void,
   maxTokens = 8192,
+  toolsAnthropic: AnthropicToolDefinition[] = [],
 ): Promise<{
   stopReason: string | null
   contentBlocks: ContentBlock[]
@@ -277,7 +279,7 @@ export function callOpenAIStream(
     const reqModule = protocol === 'https:' ? https : http
 
     const openaiMessages = convertMessagesToOpenAI(messages, systemPrompt)
-    const openaiTools = convertToolsToOpenAI()
+    const openaiTools = convertToolsToOpenAI(toolsAnthropic)
 
     const body = JSON.stringify({
       model,

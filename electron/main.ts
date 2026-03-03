@@ -5,12 +5,14 @@ import https from 'node:https'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import type { ChatPayload, HistorySyncMessage } from './shared-types'
+import type { ChatPayload, HistorySyncMessage, McpServerPayload } from './shared-types'
 import type { ToolInput, ContentBlock, ContentBlockText, ContentBlockToolUse, ContentBlockToolResult, AnthropicMessage, ImageAttachment, ApiConfig, DirEntry } from './types'
 import { isDangerousCommand, isToolSafe, TOOLS_ANTHROPIC, buildSystemPrompt, executeTool } from './tools'
+import type { AnthropicToolDefinition } from './tools'
 import { parseEndpoint, callAnthropicStream, callOpenAIStream, convertMessagesToOpenAI, callAPI } from './api-client'
 import { getOrCreateTurnInfo, getSessionTurnInfo, deleteSessionTurnInfo, clearAllSessionTurnInfo, saveSnapshot, getSnapshots, deleteSnapshots, clearAllSnapshots, rollbackSnapshots, rebaseTurnInfoAfterHistoryRewrite, recomputeMinRollbackTurn } from './snapshots'
 import { initAutoUpdater } from './updater'
+import { McpRuntime } from './mcp-runtime'
 
 // ESM 兼容：手动构造 __dirname / __filename
 const __filename = fileURLToPath(import.meta.url)
@@ -75,6 +77,7 @@ let isQuitting = false
 // key = sessionId（支持多会话并行流式）
 const activeAbortControllers = new Map<string, { aborted: boolean; destroy?: () => void }>()
 const conversationHistories = new Map<string, Array<AnthropicMessage>>()
+const mcpRuntimes = new Map<string, McpRuntime>()
 
 type SessionRuntimePhase = 'idle' | 'streaming' | 'rollback' | 'restore'
 const sessionRuntimeState = new Map<string, SessionRuntimePhase>()
@@ -85,6 +88,34 @@ function getSessionPhase(sessionId: string): SessionRuntimePhase {
 
 function setSessionPhase(sessionId: string, phase: SessionRuntimePhase) {
   sessionRuntimeState.set(sessionId, phase)
+}
+
+function normalizeMcpServersFromPayload(payload: ChatPayload | string): McpServerPayload[] {
+  const servers = typeof payload === 'string' ? [] : payload.mcpServers || []
+  return servers
+    .map((s) => ({
+      id: (s.id || '').trim(),
+      name: (s.name || '').trim(),
+      command: (s.command || '').trim(),
+      args: (s.args || '').trim() || undefined,
+    }))
+    .filter((s) => s.id && s.command)
+}
+
+function getOrCreateMcpRuntime(sessionId: string): McpRuntime {
+  let runtime = mcpRuntimes.get(sessionId)
+  if (!runtime) {
+    runtime = new McpRuntime(sessionId)
+    mcpRuntimes.set(sessionId, runtime)
+  }
+  return runtime
+}
+
+async function shutdownMcpRuntime(sessionId: string) {
+  const runtime = mcpRuntimes.get(sessionId)
+  if (!runtime) return
+  mcpRuntimes.delete(sessionId)
+  await runtime.shutdown()
 }
 
 async function stopSessionStream(sessionId: string) {
@@ -112,6 +143,8 @@ async function stopSessionStream(sessionId: string) {
       }, 20)
     })
   }
+
+  await shutdownMcpRuntime(sessionId)
 }
 
 async function withSessionExclusive<T>(
@@ -138,7 +171,7 @@ async function withSessionExclusive<T>(
   }
 }
 
-function cleanupSessionResources(sessionId: string) {
+async function cleanupSessionResources(sessionId: string) {
   const ctrl = activeAbortControllers.get(sessionId)
   if (ctrl) {
     ctrl.aborted = true
@@ -152,6 +185,8 @@ function cleanupSessionResources(sessionId: string) {
     pendingConfirmations.delete(id)
   }
 
+  await shutdownMcpRuntime(sessionId)
+
   conversationHistories.delete(sessionId)
   deleteSnapshots(sessionId)
   deleteSessionTurnInfo(sessionId)
@@ -164,7 +199,7 @@ function getOrCreateHistory(sessionId: string): AnthropicMessage[] {
   if (!conversationHistories.has(sessionId)) {
     if (conversationHistories.size >= MAX_CONVERSATION_SESSIONS) {
       const oldestKey = conversationHistories.keys().next().value
-      if (oldestKey) cleanupSessionResources(oldestKey)
+      if (oldestKey) void cleanupSessionResources(oldestKey)
     }
     conversationHistories.set(sessionId, [])
   }
@@ -399,9 +434,13 @@ function registerGlobalShortcut() {
 }
 
 // ── 优雅退出：清理所有活跃资源 ────────────────────────
-function cleanupAllResources() {
-  for (const sessionId of Array.from(conversationHistories.keys())) {
-    cleanupSessionResources(sessionId)
+async function cleanupAllResources() {
+  const sessionIds = new Set<string>([
+    ...conversationHistories.keys(),
+    ...mcpRuntimes.keys(),
+  ])
+  for (const sessionId of Array.from(sessionIds)) {
+    await cleanupSessionResources(sessionId)
   }
 
   // 兜底：清理可能未出现在 history map 里的残余资源
@@ -414,6 +453,10 @@ function cleanupAllResources() {
     pending.resolve(false)
     pendingConfirmations.delete(id)
   }
+  for (const [sessionId, runtime] of mcpRuntimes) {
+    mcpRuntimes.delete(sessionId)
+    await runtime.shutdown()
+  }
 
   conversationHistories.clear()
   clearAllSnapshots()
@@ -424,11 +467,11 @@ function cleanupAllResources() {
 app.on('before-quit', () => {
   isQuitting = true
   globalShortcut.unregisterAll()
-  cleanupAllResources()
+  void cleanupAllResources()
 })
 
 app.on('window-all-closed', () => {
-  cleanupAllResources()
+  void cleanupAllResources()
   // 托盘模式下不退出（除非 isQuitting）
   if (isQuitting && process.platform !== 'darwin') app.quit()
 })
@@ -603,6 +646,34 @@ function listDirChildren(dirPath: string, showHidden: boolean = false): DirEntry
 // Windows 路径安全比较
 function resolvePathSafe(rawPath: string): string {
   return fs.realpathSync.native(path.resolve(rawPath))
+}
+
+function validateMcpCommand(commandRaw: string, argsRaw: string): { command: string; argsArray: string[] } {
+  const command = (commandRaw || '').trim()
+  if (!command) throw new Error('命令不能为空')
+
+  // 仅允许可执行文件名/路径，不允许注入控制符
+  if (/['"`;&|><\n\r]/.test(command)) {
+    throw new Error('命令包含非法字符')
+  }
+
+  const dangerousCommands = new Set(['cmd', 'powershell', 'pwsh', 'sh', 'bash', 'zsh'])
+  const commandBase = path.basename(command).toLowerCase()
+  if (dangerousCommands.has(commandBase)) {
+    throw new Error(`不允许将高风险命令作为 MCP 启动命令: ${commandBase}`)
+  }
+
+  const rawArgs = (argsRaw || '').trim()
+  if (/[\n\r]/.test(rawArgs)) {
+    throw new Error('参数包含非法换行符')
+  }
+
+  const argsArray = rawArgs ? rawArgs.split(/\s+/).filter(Boolean) : []
+  if (argsArray.some(a => /[`;&|><]/.test(a))) {
+    throw new Error('参数包含非法控制符')
+  }
+
+  return { command, argsArray }
 }
 
 function isInsideRoot(root: string, target: string): boolean {
@@ -868,34 +939,11 @@ ipcMain.handle('check-api-connection', async (_event, config: { endpoint: string
 // ── MCP 连接测试 ────────────────────────────────────────
 ipcMain.handle('test-mcp-connection', async (_event, config: { command: string; args: string }) => {
   return new Promise<{ connected: boolean; error?: string }>((resolve) => {
-    const command = (config.command || '').trim()
-    if (!command) {
-      resolve({ connected: false, error: '命令不能为空' })
-      return
-    }
-
-    // 仅允许可执行文件名/路径，不允许注入控制符
-    if (/['"`;&|><\n\r]/.test(command)) {
-      resolve({ connected: false, error: '命令包含非法字符' })
-      return
-    }
-
-    const dangerousCommands = new Set(['cmd', 'powershell', 'pwsh', 'sh', 'bash', 'zsh'])
-    const commandBase = path.basename(command).toLowerCase()
-    if (dangerousCommands.has(commandBase)) {
-      resolve({ connected: false, error: `不允许将高风险命令作为 MCP 启动命令: ${commandBase}` })
-      return
-    }
-
-    const rawArgs = (config.args || '').trim()
-    if (/[\n\r]/.test(rawArgs)) {
-      resolve({ connected: false, error: '参数包含非法换行符' })
-      return
-    }
-
-    const argsArray = rawArgs ? rawArgs.split(/\s+/).filter(Boolean) : []
-    if (argsArray.some(a => /[`;&|><]/.test(a))) {
-      resolve({ connected: false, error: '参数包含非法控制符' })
+    let parsed: { command: string; argsArray: string[] }
+    try {
+      parsed = validateMcpCommand(config.command, config.args)
+    } catch (err) {
+      resolve({ connected: false, error: (err as Error).message })
       return
     }
 
@@ -906,7 +954,7 @@ ipcMain.handle('test-mcp-connection', async (_event, config: { command: string; 
       resolve(result)
     }
 
-    const child = spawn(command, argsArray, {
+    const child = spawn(parsed.command, parsed.argsArray, {
       shell: false,
       timeout: 5000,
     })
@@ -1307,6 +1355,31 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
   const maxTokens = (typeof payload === 'string' ? 8192 : payload.maxTokens) || 8192
   const systemPrompt = buildSystemPrompt(cwd, customSysPrompt, useClaudeCodePrompt)
 
+  const mcpServers = normalizeMcpServersFromPayload(payload)
+  const mergedTools: AnthropicToolDefinition[] = [...TOOLS_ANTHROPIC]
+  let mcpRuntime: McpRuntime | null = null
+  if (mcpServers.length > 0) {
+    mcpRuntime = getOrCreateMcpRuntime(sessionId)
+    try {
+      const mcpInit = await mcpRuntime.init(mcpServers)
+      if (mcpInit.tools.length > 0) {
+        mergedTools.push(...mcpInit.tools)
+      }
+      if (mcpInit.warnings.length > 0) {
+        event.sender.send('claude-stream-data', sessionId, JSON.stringify({
+          type: 'text',
+          content: `\n[系统: MCP 部分服务器不可用，已降级为可用工具继续执行]\n${mcpInit.warnings.map(w => `- ${w}`).join('\n')}\n`,
+        }))
+      }
+    } catch (err) {
+      event.sender.send('claude-stream-data', sessionId, JSON.stringify({
+        type: 'text',
+        content: `\n[系统: MCP 初始化失败，已回退为内置工具]\n- ${(err as Error).message}\n`,
+      }))
+      await mcpRuntime.shutdown()
+    }
+  }
+
   try {
     let round = 0
     while (round < MAX_TOOL_ROUNDS) {
@@ -1385,12 +1458,12 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
           if (apiConfig.format === 'openai') {
             streamResult = await callOpenAIStream(
               history, systemPrompt, model, apiConfig, abortCtrl,
-              appendText, appendToolUse, appendImage, reportUsage, maxTokens,
+              appendText, appendToolUse, appendImage, reportUsage, maxTokens, mergedTools,
             )
           } else {
             const body = JSON.stringify({
               model, max_tokens: maxTokens, stream: true,
-              system: systemPrompt, tools: TOOLS_ANTHROPIC, messages: history,
+              system: systemPrompt, tools: mergedTools, messages: history,
             })
             streamResult = await callAnthropicStream(
               body, apiConfig, abortCtrl,
@@ -1477,11 +1550,15 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
           continue
         }
 
-        const result = await executeTool(tu.name, tu.input, cwd, abortCtrl, {
-          sessionId,
-          turnNumber: currentTurn,
-          toolId: tu.id,
-        }, saveSnapshot)
+        const result = tu.name.startsWith('mcp__')
+          ? (mcpRuntime
+            ? await mcpRuntime.callTool(tu.name, tu.input as Record<string, unknown>)
+            : '[error] MCP runtime 不可用')
+          : await executeTool(tu.name, tu.input, cwd, abortCtrl, {
+            sessionId,
+            turnNumber: currentTurn,
+            toolId: tu.id,
+          }, saveSnapshot)
 
         const shortResult = result.length > 2000
           ? result.slice(0, 2000) + '\n... (output truncated in display)'
@@ -1517,6 +1594,7 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
     if (!abortCtrl.aborted && round >= MAX_TOOL_ROUNDS) {
       activeAbortControllers.delete(sessionId)
       setSessionPhase(sessionId, 'idle')
+      await shutdownMcpRuntime(sessionId)
       const roundLimitError = `工具调用轮次达到上限 (${MAX_TOOL_ROUNDS})，任务已终止`
       event.sender.send('claude-stream-error', sessionId, roundLimitError)
       event.sender.send('claude-stream-end', sessionId, 1)
@@ -1525,6 +1603,7 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
 
     activeAbortControllers.delete(sessionId)
     setSessionPhase(sessionId, 'idle')
+    await shutdownMcpRuntime(sessionId)
     event.sender.send('claude-stream-end', sessionId, 0)
     return { code: 0 }
   } catch (err) {
@@ -1534,6 +1613,7 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
 
     activeAbortControllers.delete(sessionId)
     setSessionPhase(sessionId, 'idle')
+    await shutdownMcpRuntime(sessionId)
     event.sender.send('claude-stream-error', sessionId, (err as Error).message)
     event.sender.send('claude-stream-end', sessionId, 1)
     return { code: 1 }
@@ -1607,9 +1687,9 @@ ipcMain.handle('claude-execute', async (_event, payload: ChatPayload) => {
 // ── 清除会话历史 ────────────────────────────────────────
 ipcMain.handle('clear-history', async (_event, sessionId?: string) => {
   if (sessionId) {
-    cleanupSessionResources(sessionId)
+    await cleanupSessionResources(sessionId)
   } else {
-    cleanupAllResources()
+    await cleanupAllResources()
   }
   return { success: true }
 })

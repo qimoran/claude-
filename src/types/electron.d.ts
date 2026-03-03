@@ -1,4 +1,11 @@
 // Canonical source: electron/shared-types.ts — 保持字段同步
+interface McpServerPayload {
+  id: string
+  name: string
+  command: string
+  args?: string
+}
+
 interface ChatPayload {
   prompt?: string
   model?: string
@@ -12,6 +19,7 @@ interface ChatPayload {
   customSystemPrompt?: string
   useClaudeCodePrompt?: boolean
   maxTokens?: number
+  mcpServers?: McpServerPayload[]
 }
 
 interface ChatResult {

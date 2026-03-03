@@ -1,5 +1,12 @@
 // ── 跨进程共享类型（main / preload / renderer 共用）──────
 
+export interface McpServerPayload {
+  id: string
+  name: string
+  command: string
+  args?: string
+}
+
 export interface ChatPayload {
   prompt?: string
   model?: string
@@ -13,6 +20,7 @@ export interface ChatPayload {
   customSystemPrompt?: string
   useClaudeCodePrompt?: boolean
   maxTokens?: number
+  mcpServers?: McpServerPayload[]
 }
 
 export interface HistorySyncMessage {

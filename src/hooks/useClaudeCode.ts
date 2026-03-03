@@ -756,6 +756,14 @@ export function useClaudeCode(): UseClaudeCodeReturn {
 
         const selectedModel = normalizeModelToSend(activeSession.model || activeModel)
         const routing = selectRouting(selectedModel)
+        const mcpServers = settings.mcpServers
+          .map((server) => ({
+            id: server.id,
+            name: server.name,
+            command: (server.command || '').trim(),
+            args: (server.args || '').trim() || undefined,
+          }))
+          .filter((server) => server.command.length > 0)
         setLastRouting({ model: selectedModel, ...routing })
         await window.electronAPI.stream({
           prompt: finalPrompt,
@@ -770,6 +778,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
           customSystemPrompt: activeSession.customSystemPrompt || undefined,
           useClaudeCodePrompt: settings.useClaudeCodePrompt,
           maxTokens: settings.maxTokens,
+          mcpServers: mcpServers.length > 0 ? mcpServers : undefined,
         })
       } else {
         setTimeout(() => {
@@ -810,6 +819,9 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     settings.apiFormat,
     settings.altApiFormat,
     settings.thirdApiFormat,
+    settings.mcpServers,
+    settings.useClaudeCodePrompt,
+    settings.maxTokens,
     updateSession,
     rollbackingSessions,
     syncBackendHistory,
