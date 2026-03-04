@@ -18,6 +18,7 @@ export interface McpServerConfig {
   name: string
   command: string
   args: string
+  env: Array<{ key: string; value: string }>
   status: 'connected' | 'disconnected' | 'unknown'
 }
 
@@ -121,6 +122,38 @@ const DEFAULT_SETTINGS: AppSettings = {
   chatTheme: 'dark',
 }
 
+function normalizeMcpEnvEntries(raw: unknown): Array<{ key: string; value: string }> {
+  if (!Array.isArray(raw)) return []
+  const result: Array<{ key: string; value: string }> = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const entry = item as Record<string, unknown>
+    const key = typeof entry.key === 'string' ? entry.key : ''
+    const value = typeof entry.value === 'string' ? entry.value : ''
+    result.push({ key, value })
+  }
+  return result
+}
+
+function normalizeMcpServers(raw: unknown): McpServerConfig[] {
+  if (!Array.isArray(raw)) return []
+  const result: McpServerConfig[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const server = item as Record<string, unknown>
+    const statusRaw = server.status
+    result.push({
+      id: typeof server.id === 'string' ? server.id : Date.now().toString(),
+      name: typeof server.name === 'string' ? server.name : '',
+      command: typeof server.command === 'string' ? server.command : '',
+      args: typeof server.args === 'string' ? server.args : '',
+      env: normalizeMcpEnvEntries(server.env),
+      status: statusRaw === 'connected' || statusRaw === 'disconnected' ? statusRaw : 'unknown',
+    })
+  }
+  return result
+}
+
 function readSettingsFromStorage(): AppSettings {
   try {
     // 尝试读取 v3
@@ -179,7 +212,7 @@ function readSettingsFromStorage(): AppSettings {
       workingDirectory: parsed.workingDirectory || '',
       dangerouslySkipPermissions: Boolean(parsed.dangerouslySkipPermissions),
       hooks: Array.isArray(parsed.hooks) ? parsed.hooks : [],
-      mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : [],
+      mcpServers: normalizeMcpServers(parsed.mcpServers),
       fontSizeChat: (parsed as Record<string, unknown>).fontSizeChat as number || DEFAULT_SETTINGS.fontSizeChat,
       fontSizeCode: (parsed as Record<string, unknown>).fontSizeCode as number || DEFAULT_SETTINGS.fontSizeCode,
       fontSizeUI: (parsed as Record<string, unknown>).fontSizeUI as number || DEFAULT_SETTINGS.fontSizeUI,

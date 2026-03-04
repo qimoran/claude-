@@ -757,12 +757,24 @@ export function useClaudeCode(): UseClaudeCodeReturn {
         const selectedModel = normalizeModelToSend(activeSession.model || activeModel)
         const routing = selectRouting(selectedModel)
         const mcpServers = settings.mcpServers
-          .map((server) => ({
-            id: server.id,
-            name: server.name,
-            command: (server.command || '').trim(),
-            args: (server.args || '').trim() || undefined,
-          }))
+          .map((server) => {
+            const envEntries = Array.isArray(server.env) ? server.env : []
+            const env = Object.fromEntries(
+              envEntries
+                .map((entry) => [
+                  (entry.key || '').trim(),
+                  (entry.value || '').trim(),
+                ] as const)
+                .filter(([key]) => key.length > 0),
+            )
+            return {
+              id: server.id,
+              name: server.name,
+              command: (server.command || '').trim(),
+              args: (server.args || '').trim() || undefined,
+              env: Object.keys(env).length > 0 ? env : undefined,
+            }
+          })
           .filter((server) => server.command.length > 0)
         setLastRouting({ model: selectedModel, ...routing })
         await window.electronAPI.stream({

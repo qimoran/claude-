@@ -16,7 +16,7 @@ export default function McpConfig() {
   const addServer = () => {
     setServers([
       ...servers,
-      { id: Date.now().toString(), name: '', command: '', args: '', status: 'unknown' },
+      { id: Date.now().toString(), name: '', command: '', args: '', env: [], status: 'unknown' },
     ])
   }
 
@@ -28,6 +28,31 @@ export default function McpConfig() {
     setServers(servers.map((s) => (s.id === id ? { ...s, ...updates } : s)))
   }
 
+  const addEnvRow = (id: string) => {
+    setServers(servers.map((s) => {
+      if (s.id !== id) return s
+      return { ...s, env: [...(Array.isArray(s.env) ? s.env : []), { key: '', value: '' }] }
+    }))
+  }
+
+  const updateEnvRow = (id: string, index: number, patch: { key?: string; value?: string }) => {
+    setServers(servers.map((s) => {
+      if (s.id !== id) return s
+      const env = Array.isArray(s.env) ? [...s.env] : []
+      if (!env[index]) return s
+      env[index] = { ...env[index], ...patch }
+      return { ...s, env }
+    }))
+  }
+
+  const removeEnvRow = (id: string, index: number) => {
+    setServers(servers.map((s) => {
+      if (s.id !== id) return s
+      const env = Array.isArray(s.env) ? s.env.filter((_, i) => i !== index) : []
+      return { ...s, env }
+    }))
+  }
+
   const testConnection = async (id: string) => {
     const server = servers.find((s) => s.id === id)
     if (!server || !server.command.trim()) {
@@ -37,9 +62,18 @@ export default function McpConfig() {
     // 通过 IPC 测试连接（如果可用）
     if (window.electronAPI?.testMcpConnection) {
       try {
+        const env = Object.fromEntries(
+          (Array.isArray(server.env) ? server.env : [])
+            .map((entry) => [
+              (entry.key || '').trim(),
+              (entry.value || '').trim(),
+            ] as const)
+            .filter(([key]) => key.length > 0),
+        )
         const result = await window.electronAPI.testMcpConnection({
           command: server.command,
           args: server.args,
+          env: Object.keys(env).length > 0 ? env : undefined,
         })
         updateServer(id, { status: result.connected ? 'connected' : 'disconnected' })
       } catch {
@@ -135,6 +169,50 @@ export default function McpConfig() {
                              text-sm text-claude-text font-mono placeholder-claude-text-muted
                              focus:outline-none focus:border-claude-primary"
                 />
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs text-claude-text-muted">环境变量 (env)</label>
+                <button
+                  onClick={() => addEnvRow(server.id)}
+                  className="text-xs px-2 py-1 bg-claude-bg border border-claude-border rounded text-claude-text-muted hover:text-claude-text"
+                >
+                  添加 env
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {(Array.isArray(server.env) ? server.env : []).map((entry, idx) => (
+                  <div key={`${server.id}-env-${idx}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                    <input
+                      type="text"
+                      value={entry.key}
+                      onChange={(e) => updateEnvRow(server.id, idx, { key: e.target.value })}
+                      placeholder="KEY"
+                      className="w-full bg-claude-bg border border-claude-border rounded px-2 py-1.5
+                                 text-xs text-claude-text font-mono placeholder-claude-text-muted
+                                 focus:outline-none focus:border-claude-primary"
+                    />
+                    <input
+                      type="text"
+                      value={entry.value}
+                      onChange={(e) => updateEnvRow(server.id, idx, { value: e.target.value })}
+                      placeholder="VALUE"
+                      className="w-full bg-claude-bg border border-claude-border rounded px-2 py-1.5
+                                 text-xs text-claude-text font-mono placeholder-claude-text-muted
+                                 focus:outline-none focus:border-claude-primary"
+                    />
+                    <button
+                      onClick={() => removeEnvRow(server.id, idx)}
+                      className="px-2 py-1.5 text-red-400 hover:bg-red-500/10 rounded"
+                      title="删除 env"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

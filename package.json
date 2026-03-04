@@ -1,6 +1,6 @@
 {
   "name": "claude-code-gui",
-  "version": "1.0.4",
+  "version": "1.0.7",
   "description": "Claude Code 可视化桌面界面",
   "author": "Claude Code GUI Team",
   "main": "dist-electron/main.js",

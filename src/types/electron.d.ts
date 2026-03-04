@@ -4,6 +4,7 @@ interface McpServerPayload {
   name: string
   command: string
   args?: string
+  env?: Record<string, string>
 }
 
 interface ChatPayload {
@@ -114,6 +115,7 @@ interface ElectronAPI {
   testMcpConnection: (config: {
     command: string
     args: string
+    env?: Record<string, string>
   }) => Promise<McpTestResult>
   // 对话导出
   exportChat: (data: {

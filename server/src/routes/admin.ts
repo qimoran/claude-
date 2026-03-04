@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import { config } from '../config'
-import { queryOne, queryAll, execute, transaction } from '../db'
+import { queryOne, queryAll, execute } from '../db'
 import { authMiddleware, adminMiddleware } from '../middleware/auth'
 import { invalidateSettingsCache } from '../utils/settings-cache'
 
@@ -233,23 +233,25 @@ router.get('/settings', (_req: Request, res: Response) => {
 
 // 更新设置
 router.put('/settings', (req: Request, res: Response) => {
-  const { settings } = req.body
-  if (!settings || typeof settings !== 'object') {
-    res.status(400).json({ error: '无效的设置数据' })
-    return
-  }
+  try {
+    const { settings } = req.body
+    if (!settings || typeof settings !== 'object') {
+      res.status(400).json({ error: '无效的设置数据' })
+      return
+    }
 
-  transaction(() => {
     for (const [key, value] of Object.entries(settings)) {
       execute(`
         INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
       `, [key, String(value)])
     }
-  })
 
-  invalidateSettingsCache()
-  res.json({ success: true })
+    invalidateSettingsCache()
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
 })
 
 export default router

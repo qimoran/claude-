@@ -106,6 +106,32 @@ function sanitizeArgs(rawArgs?: string): string[] {
   return args
 }
 
+function sanitizeEnv(rawEnv?: Record<string, string>): Record<string, string> {
+  if (!rawEnv || typeof rawEnv !== 'object' || Array.isArray(rawEnv)) return {}
+
+  const env: Record<string, string> = {}
+  const blockedKeys = new Set(['__proto__', 'prototype', 'constructor'])
+  for (const [rawKey, rawValue] of Object.entries(rawEnv)) {
+    const key = (rawKey || '').trim()
+    if (!key) continue
+    if (blockedKeys.has(key)) {
+      throw new Error(`MCP 环境变量名非法: ${key}`)
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`MCP 环境变量名非法: ${key}`)
+    }
+
+    const value = typeof rawValue === 'string' ? rawValue : String(rawValue ?? '')
+    if (/[\0\n\r]/.test(value)) {
+      throw new Error(`MCP 环境变量值包含非法字符: ${key}`)
+    }
+
+    env[key] = value
+  }
+
+  return env
+}
+
 function toErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
   return String(err)
@@ -177,6 +203,7 @@ export class McpRuntime {
         name: (s.name || '').trim(),
         command: (s.command || '').trim(),
         args: (s.args || '').trim() || undefined,
+        env: s.env,
       }))
       .filter((s) => s.id && s.command)
 
@@ -265,10 +292,15 @@ export class McpRuntime {
     try {
       const command = sanitizeCommandOrThrow(server.command)
       const args = sanitizeArgs(server.args)
+      const env = sanitizeEnv(server.env)
 
       const child = spawn(command, args, {
         shell: false,
         stdio: 'pipe',
+        env: {
+          ...process.env,
+          ...env,
+        },
       })
 
       const runtime: ServerRuntime = {

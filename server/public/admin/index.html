@@ -199,6 +199,12 @@
             <label class="block text-xs text-dark-muted mb-1">新用户默认每日 Token 限额</label>
             <input id="setting-default-limit" type="number" class="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm text-dark-text focus:border-dark-primary" placeholder="1000000">
           </div>
+          <div class="flex items-start gap-2">
+            <input id="setting-log-full-payload" type="checkbox" class="mt-0.5 accent-dark-primary">
+            <label for="setting-log-full-payload" class="text-xs text-dark-muted leading-relaxed">
+              临时记录完整输入/输出日志（仅用于排障，包含敏感内容）
+            </label>
+          </div>
           <div class="flex items-center gap-3">
             <button id="save-settings-btn" class="bg-dark-primary hover:bg-dark-primary/80 text-white rounded px-4 py-2 text-sm font-medium transition-colors">保存设置</button>
             <span id="settings-msg" class="text-xs text-dark-success hidden">已保存</span>
@@ -223,11 +229,11 @@
           <div><span class="text-dark-muted">Token</span><p id="detail-tokens" class="mt-0.5 font-medium">-</p></div>
         </div>
         <div>
-          <p class="text-xs text-dark-muted mb-1.5">输入内容（用户发送）</p>
+          <p class="text-xs text-dark-muted mb-1.5">输入内容（兼容摘要模式）</p>
           <div id="detail-request" class="bg-dark-bg border border-dark-border rounded p-3 text-xs leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto break-all">无</div>
         </div>
         <div>
-          <p class="text-xs text-dark-muted mb-1.5">输出内容（模型回复）</p>
+          <p class="text-xs text-dark-muted mb-1.5">输出内容（兼容摘要模式）</p>
           <div id="detail-response" class="bg-dark-bg border border-dark-border rounded p-3 text-xs leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto break-all">无</div>
         </div>
       </div>
@@ -298,8 +304,17 @@ async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...options.headers }
   if (token) headers['Authorization'] = 'Bearer ' + token
   const res = await fetch(BASE + path, { ...options, headers })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '请求失败')
+  const text = await res.text()
+
+  let data
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    const preview = text.slice(0, 120).replace(/\s+/g, ' ')
+    throw new Error(`接口返回非 JSON（HTTP ${res.status}）: ${preview || '[empty]'}`)
+  }
+
+  if (!res.ok) throw new Error(data.error || `请求失败（HTTP ${res.status}）`)
   return data
 }
 
@@ -571,6 +586,91 @@ async function loadLogs(dir) {
   }
 }
 
+function prettyJson(raw) {
+  if (!raw) return ''
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return String(raw)
+  }
+}
+
+function formatRequestDetail(raw) {
+  if (!raw) return '无'
+  try {
+    const req = JSON.parse(raw)
+    // 新版本：request_body 为摘要
+    if (typeof req.messageCount === 'number' || typeof req.hasStream === 'boolean') {
+      return [
+        `messageCount: ${req.messageCount ?? 0}`,
+        `hasStream: ${req.hasStream === true ? 'true' : 'false'}`,
+        req.maxTokens != null ? `maxTokens: ${req.maxTokens}` : null,
+      ].filter(Boolean).join('\n')
+    }
+
+    // 兼容旧版本：仍可能是完整 messages
+    const msgs = Array.isArray(req.messages) ? req.messages : []
+    if (msgs.length > 0) {
+      const legacy = msgs.map((m) => `[${m.role || 'unknown'}]\n${typeof m.content === 'string' ? m.content : prettyJson(m.content)}`).join('\n\n---\n\n')
+      if (legacy.trim()) return legacy
+    }
+
+    return prettyJson(raw)
+  } catch {
+    return String(raw)
+  }
+}
+
+function formatResponseDetail(raw) {
+  if (!raw) return '无'
+  if (raw === '[response-redacted]') return '响应内容已脱敏'
+  if (raw === '[unparsed-request]') return '请求内容无法解析（已按原始占位记录）'
+
+  try {
+    const parsed = JSON.parse(raw)
+
+    // 新版本：response_body 为 usage/choiceCount 摘要
+    if (Object.prototype.hasOwnProperty.call(parsed, 'choiceCount') || Object.prototype.hasOwnProperty.call(parsed, 'usage')) {
+      const usage = parsed.usage || {}
+      return [
+        `choiceCount: ${parsed.choiceCount ?? 0}`,
+        `promptTokens: ${usage.promptTokens ?? 0}`,
+        `completionTokens: ${usage.completionTokens ?? 0}`,
+        `totalTokens: ${usage.totalTokens ?? 0}`,
+      ].join('\n')
+    }
+
+    // 流式摘要（chunks/totalBytes/usage）
+    if (Object.prototype.hasOwnProperty.call(parsed, 'chunks') || Object.prototype.hasOwnProperty.call(parsed, 'totalBytes')) {
+      const usage = parsed.usage || {}
+      return [
+        `chunks: ${parsed.chunks ?? 0}`,
+        `totalBytes: ${parsed.totalBytes ?? 0}`,
+        `promptTokens: ${usage.promptTokens ?? 0}`,
+        `completionTokens: ${usage.completionTokens ?? 0}`,
+        `totalTokens: ${usage.totalTokens ?? 0}`,
+      ].join('\n')
+    }
+
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    // 完整日志模式下，流式可能保存为 SSE 原文，这里只提取最终 content
+    const lines = String(raw).split('\n')
+    let finalText = ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ') || line === 'data: [DONE]') continue
+      try {
+        const chunk = JSON.parse(line.slice(6))
+        const piece = chunk?.choices?.[0]?.delta?.content
+        if (typeof piece === 'string') finalText += piece
+      } catch { /* skip */ }
+    }
+    if (finalText.trim()) return finalText
+
+    return String(raw)
+  }
+}
+
 function showLogDetail(index) {
   const l = window._logsCache[index]
   if (!l) return
@@ -579,19 +679,8 @@ function showLogDetail(index) {
   document.getElementById('detail-time').textContent = fmtTime(l.created_at)
   document.getElementById('detail-tokens').textContent = `${fmtNum(l.tokens_in)} in / ${fmtNum(l.tokens_out)} out / ${fmtNum(l.total_tokens)} total`
 
-  let reqDisplay = '无'
-  if (l.request_body) {
-    try {
-      const req = JSON.parse(l.request_body)
-      const msgs = req.messages || []
-      reqDisplay = msgs.map(m => `[${m.role}]\n${m.content}`).join('\n\n---\n\n')
-      if (!reqDisplay) reqDisplay = l.request_body
-    } catch {
-      reqDisplay = l.request_body
-    }
-  }
-  document.getElementById('detail-request').textContent = reqDisplay
-  document.getElementById('detail-response').textContent = l.response_body || '无'
+  document.getElementById('detail-request').textContent = formatRequestDetail(l.request_body)
+  document.getElementById('detail-response').textContent = formatResponseDetail(l.response_body)
   document.getElementById('log-detail-modal').classList.remove('hidden')
 }
 
@@ -695,6 +784,7 @@ async function loadSettings() {
     }
     renderApiConfigs()
     document.getElementById('setting-default-limit').value = data.settings.default_daily_token_limit || '1000000'
+    document.getElementById('setting-log-full-payload').checked = data.settings.log_full_payload === 'true'
   } catch (e) {
     if (e.message.includes('过期')) doLogout()
   }
@@ -708,6 +798,7 @@ async function saveSettings() {
         settings: {
           api_configs: JSON.stringify(apiConfigs),
           default_daily_token_limit: document.getElementById('setting-default-limit').value,
+          log_full_payload: document.getElementById('setting-log-full-payload').checked ? 'true' : 'false',
         }
       })
     })

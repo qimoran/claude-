@@ -37,6 +37,11 @@ async function init() {
     `, ['api_key', config.defaultApiKey])
   }
 
+  execute(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `, ['log_full_payload', 'false'])
+
   console.log('管理员账号已创建')
   console.log('  用户名: admin')
   console.log('  密码: [已隐藏]')

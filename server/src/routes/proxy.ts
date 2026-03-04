@@ -61,6 +61,11 @@ function summarizeResponsePayload(rawBody: string | null): string | null {
   }
 }
 
+function shouldLogFullPayload(): boolean {
+  const raw = getCachedSetting('log_full_payload')
+  return raw === 'true'
+}
+
 // 记录用量
 function logUsage(
   userId: string, model: string,
@@ -68,15 +73,17 @@ function logUsage(
   durationMs: number, status: string,
   errorMessage: string | null, ip: string,
   requestBody: string | null = null,
-  responseBody: string | null = null
+  responseBody: string | null = null,
+  fullPayloadMode?: boolean
 ) {
   const totalTokens = tokensIn + tokensOut
-  const requestSummary = summarizeRequestPayload(requestBody)
-  const responseSummary = summarizeResponsePayload(responseBody)
+  const keepFull = fullPayloadMode ?? shouldLogFullPayload()
+  const requestLogged = keepFull ? requestBody : summarizeRequestPayload(requestBody)
+  const responseLogged = keepFull ? responseBody : summarizeResponsePayload(responseBody)
   execute(`
     INSERT INTO usage_logs (user_id, model, tokens_in, tokens_out, total_tokens, duration_ms, status, error_message, ip_address, request_body, response_body)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [userId, model, tokensIn, tokensOut, totalTokens, durationMs, status, errorMessage, ip, requestSummary, responseSummary])
+  `, [userId, model, tokensIn, tokensOut, totalTokens, durationMs, status, errorMessage, ip, requestLogged, responseLogged])
 
   // 检查是否跨天，跨天则重置 tokens_used_today
   const today = new Date().toISOString().slice(0, 10)
@@ -147,6 +154,7 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
   const model = req.body.model || 'unknown'
   const isStream = req.body.stream === true
   const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || ''
+  const keepFullLog = shouldLogFullPayload()
 
   try {
     const apiConfig = getApiConfig()
@@ -199,15 +207,21 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
           const streamText = Buffer.concat(streamChunks).toString('utf-8')
           let streamTokensIn = 0
           let streamTokensOut = 0
+          let streamFinalText = ''
           for (const line of streamText.split('\n')) {
             if (!line.startsWith('data: ') || line === 'data: [DONE]') continue
             try {
-              const d = JSON.parse(line.slice(6))
+              const d = JSON.parse(line.slice(6)) as {
+                usage?: { prompt_tokens?: number; completion_tokens?: number }
+                choices?: Array<{ delta?: { content?: string } }>
+              }
               // 很多 API 在最后一个 chunk 包含 usage
               if (d.usage) {
                 streamTokensIn = d.usage.prompt_tokens || 0
                 streamTokensOut = d.usage.completion_tokens || 0
               }
+              const deltaContent = d.choices?.[0]?.delta?.content
+              if (typeof deltaContent === 'string') streamFinalText += deltaContent
             } catch { /* skip */ }
           }
           // 如果 API 没返回 usage，用粗估
@@ -221,7 +235,8 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
               totalTokens: streamTokensIn + streamTokensOut,
             },
           })
-          logUsage(userId, model, streamTokensIn, streamTokensOut, durationMs, 'success', null, ip, bodyStr, streamSummary)
+          const responseForLog = keepFullLog ? (streamFinalText || streamText) : streamSummary
+          logUsage(userId, model, streamTokensIn, streamTokensOut, durationMs, 'success', null, ip, bodyStr, responseForLog, keepFullLog)
         })
       } else {
         // 非流式响应
@@ -236,10 +251,10 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
             const tokensIn = parsed.usage?.prompt_tokens || 0
             const tokensOut = parsed.usage?.completion_tokens || 0
             // 传入原始响应体，logUsage 内部会最小化为 usage/choiceCount 摘要
-            logUsage(userId, model, tokensIn, tokensOut, durationMs, 'success', null, ip, bodyStr, body)
+            logUsage(userId, model, tokensIn, tokensOut, durationMs, 'success', null, ip, bodyStr, body, keepFullLog)
             res.status(proxyRes.statusCode || 200).json(parsed)
           } catch {
-            logUsage(userId, model, 0, 0, durationMs, 'error', 'Invalid JSON response', ip, bodyStr, body)
+            logUsage(userId, model, 0, 0, durationMs, 'error', 'Invalid JSON response', ip, bodyStr, body, keepFullLog)
             res.status(proxyRes.statusCode || 502).send(body)
           }
         })
@@ -248,7 +263,7 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
 
     proxyReq.on('error', (err) => {
       const durationMs = Date.now() - startTime
-      logUsage(userId, model, 0, 0, durationMs, 'error', err.message, ip, bodyStr, null)
+      logUsage(userId, model, 0, 0, durationMs, 'error', err.message, ip, bodyStr, null, keepFullLog)
       res.status(502).json({ error: `代理请求失败: ${err.message}` })
     })
 
@@ -256,7 +271,7 @@ router.post('/v1/chat/completions', apiKeyMiddleware, async (req: Request, res: 
     proxyReq.end()
   } catch (err) {
     const durationMs = Date.now() - startTime
-    logUsage(userId, model, 0, 0, durationMs, 'error', (err as Error).message, ip, null, null)
+    logUsage(userId, model, 0, 0, durationMs, 'error', (err as Error).message, ip, null, null, keepFullLog)
     res.status(500).json({ error: (err as Error).message })
   }
 })

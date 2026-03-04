@@ -90,6 +90,32 @@ function setSessionPhase(sessionId: string, phase: SessionRuntimePhase) {
   sessionRuntimeState.set(sessionId, phase)
 }
 
+function sanitizeMcpEnv(rawEnv?: Record<string, string>): Record<string, string> {
+  if (!rawEnv || typeof rawEnv !== 'object' || Array.isArray(rawEnv)) return {}
+
+  const env: Record<string, string> = {}
+  const blockedKeys = new Set(['__proto__', 'prototype', 'constructor'])
+  for (const [rawKey, rawValue] of Object.entries(rawEnv)) {
+    const key = (rawKey || '').trim()
+    if (!key) continue
+    if (blockedKeys.has(key)) {
+      throw new Error(`MCP 环境变量名非法: ${key}`)
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`MCP 环境变量名非法: ${key}`)
+    }
+
+    const value = typeof rawValue === 'string' ? rawValue : String(rawValue ?? '')
+    if (/[\0\n\r]/.test(value)) {
+      throw new Error(`MCP 环境变量值包含非法字符: ${key}`)
+    }
+
+    env[key] = value
+  }
+
+  return env
+}
+
 function normalizeMcpServersFromPayload(payload: ChatPayload | string): McpServerPayload[] {
   const servers = typeof payload === 'string' ? [] : payload.mcpServers || []
   return servers
@@ -98,6 +124,7 @@ function normalizeMcpServersFromPayload(payload: ChatPayload | string): McpServe
       name: (s.name || '').trim(),
       command: (s.command || '').trim(),
       args: (s.args || '').trim() || undefined,
+      env: s.env && typeof s.env === 'object' && !Array.isArray(s.env) ? s.env : undefined,
     }))
     .filter((s) => s.id && s.command)
 }
@@ -937,7 +964,7 @@ ipcMain.handle('check-api-connection', async (_event, config: { endpoint: string
 })
 
 // ── MCP 连接测试 ────────────────────────────────────────
-ipcMain.handle('test-mcp-connection', async (_event, config: { command: string; args: string }) => {
+ipcMain.handle('test-mcp-connection', async (_event, config: { command: string; args: string; env?: Record<string, string> }) => {
   return new Promise<{ connected: boolean; error?: string }>((resolve) => {
     let parsed: { command: string; argsArray: string[] }
     try {
@@ -954,9 +981,21 @@ ipcMain.handle('test-mcp-connection', async (_event, config: { command: string; 
       resolve(result)
     }
 
+    let env: Record<string, string>
+    try {
+      env = sanitizeMcpEnv(config.env)
+    } catch (err) {
+      done({ connected: false, error: (err as Error).message })
+      return
+    }
+
     const child = spawn(parsed.command, parsed.argsArray, {
       shell: false,
       timeout: 5000,
+      env: {
+        ...process.env,
+        ...env,
+      },
     })
 
     let gotOutput = false
@@ -1355,7 +1394,17 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
   const maxTokens = (typeof payload === 'string' ? 8192 : payload.maxTokens) || 8192
   const systemPrompt = buildSystemPrompt(cwd, customSysPrompt, useClaudeCodePrompt)
 
-  const mcpServers = normalizeMcpServersFromPayload(payload)
+  let mcpServers: McpServerPayload[]
+  try {
+    mcpServers = normalizeMcpServersFromPayload(payload)
+  } catch (err) {
+    event.sender.send('claude-stream-error', sessionId, `MCP 配置错误: ${(err as Error).message}`)
+    event.sender.send('claude-stream-end', sessionId, 1)
+    activeAbortControllers.delete(sessionId)
+    setSessionPhase(sessionId, 'idle')
+    return { code: 1 }
+  }
+
   const mergedTools: AnthropicToolDefinition[] = [...TOOLS_ANTHROPIC]
   let mcpRuntime: McpRuntime | null = null
   if (mcpServers.length > 0) {

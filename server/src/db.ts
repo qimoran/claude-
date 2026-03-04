@@ -130,12 +130,20 @@ export function execute(sql: string, params: unknown[] = []): void {
 // 批量执行（事务）
 export function transaction(fn: () => void): void {
   db.run('BEGIN TRANSACTION')
+  let committed = false
   try {
     fn()
     db.run('COMMIT')
+    committed = true
     saveDb()
   } catch (err) {
-    db.run('ROLLBACK')
+    if (!committed) {
+      try {
+        db.run('ROLLBACK')
+      } catch {
+        // 忽略 rollback 二次失败，保留原始错误
+      }
+    }
     throw err
   }
 }

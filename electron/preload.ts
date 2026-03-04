@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('check-api-connection', config),
 
   // MCP 测试
-  testMcpConnection: (config: { command: string; args: string }) =>
+  testMcpConnection: (config: { command: string; args: string; env?: Record<string, string> }) =>
     ipcRenderer.invoke('test-mcp-connection', config),
 
   // 对话导出
