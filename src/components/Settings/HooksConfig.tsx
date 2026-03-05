@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Plus, Trash2, Save } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useAppSettings } from '../../hooks/useAppSettings'
 import type { HookConfig } from '../../hooks/useAppSettings'
 
@@ -7,6 +7,21 @@ export default function HooksConfig() {
   const { settings, saveSettings } = useAppSettings()
   const [hooks, setHooks] = useState<HookConfig[]>(settings.hooks)
   const [saved, setSaved] = useState(false)
+  const saveTipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (saveTipTimerRef.current) clearTimeout(saveTipTimerRef.current)
+    }
+  }, [])
+
+  const persistHooks = (nextHooks: HookConfig[]) => {
+    setHooks(nextHooks)
+    saveSettings({ hooks: nextHooks })
+    setSaved(true)
+    if (saveTipTimerRef.current) clearTimeout(saveTipTimerRef.current)
+    saveTipTimerRef.current = setTimeout(() => setSaved(false), 1500)
+  }
 
   // 同步外部设置变化
   useEffect(() => {
@@ -14,24 +29,21 @@ export default function HooksConfig() {
   }, [settings.hooks])
 
   const addHook = () => {
-    setHooks([
+    const nextHooks: HookConfig[] = [
       ...hooks,
       { id: Date.now().toString(), event: 'PreToolUse', command: '', enabled: true },
-    ])
+    ]
+    persistHooks(nextHooks)
   }
 
   const removeHook = (id: string) => {
-    setHooks(hooks.filter((h) => h.id !== id))
+    const nextHooks = hooks.filter((h) => h.id !== id)
+    persistHooks(nextHooks)
   }
 
   const updateHook = (id: string, updates: Partial<HookConfig>) => {
-    setHooks(hooks.map((h) => (h.id === id ? { ...h, ...updates } : h)))
-  }
-
-  const handleSave = () => {
-    saveSettings({ hooks })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    const nextHooks = hooks.map((h) => (h.id === id ? { ...h, ...updates } : h))
+    persistHooks(nextHooks)
   }
 
   return (
@@ -108,14 +120,9 @@ export default function HooksConfig() {
           添加 Hook
         </button>
 
-        <button
-          onClick={handleSave}
-          className="flex items-center gap-2 px-4 py-2 bg-claude-primary
-                     text-white rounded-lg hover:bg-claude-primary-light transition-colors"
-        >
-          <Save size={16} />
-          {saved ? '已保存!' : '保存配置'}
-        </button>
+        <div className="flex items-center px-4 py-2 text-xs text-claude-text-muted">
+          {saved ? '已自动保存' : '自动保存中'}
+        </div>
       </div>
     </div>
   )

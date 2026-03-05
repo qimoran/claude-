@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Plus, Trash2, Save, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Trash2, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 import { useAppSettings } from '../../hooks/useAppSettings'
 import type { McpServerConfig } from '../../hooks/useAppSettings'
 
@@ -7,6 +7,21 @@ export default function McpConfig() {
   const { settings, saveSettings } = useAppSettings()
   const [servers, setServers] = useState<McpServerConfig[]>(settings.mcpServers)
   const [saved, setSaved] = useState(false)
+  const saveTipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (saveTipTimerRef.current) clearTimeout(saveTipTimerRef.current)
+    }
+  }, [])
+
+  const persistServers = (nextServers: McpServerConfig[]) => {
+    setServers(nextServers)
+    saveSettings({ mcpServers: nextServers })
+    setSaved(true)
+    if (saveTipTimerRef.current) clearTimeout(saveTipTimerRef.current)
+    saveTipTimerRef.current = setTimeout(() => setSaved(false), 1500)
+  }
 
   // 同步外部设置变化
   useEffect(() => {
@@ -14,43 +29,49 @@ export default function McpConfig() {
   }, [settings.mcpServers])
 
   const addServer = () => {
-    setServers([
+    const nextServers: McpServerConfig[] = [
       ...servers,
       { id: Date.now().toString(), name: '', command: '', args: '', env: [], status: 'unknown' },
-    ])
+    ]
+    persistServers(nextServers)
   }
 
   const removeServer = (id: string) => {
-    setServers(servers.filter((s) => s.id !== id))
+    const nextServers = servers.filter((s) => s.id !== id)
+    persistServers(nextServers)
   }
 
   const updateServer = (id: string, updates: Partial<McpServerConfig>) => {
-    setServers(servers.map((s) => (s.id === id ? { ...s, ...updates } : s)))
+    const nextServers = servers.map((s) => (s.id === id ? { ...s, ...updates } : s))
+    persistServers(nextServers)
   }
 
   const addEnvRow = (id: string) => {
-    setServers(servers.map((s) => {
+    const nextServers = servers.map((s) => {
       if (s.id !== id) return s
       return { ...s, env: [...(Array.isArray(s.env) ? s.env : []), { key: '', value: '' }] }
-    }))
+    })
+    persistServers(nextServers)
   }
 
   const updateEnvRow = (id: string, index: number, patch: { key?: string; value?: string }) => {
-    setServers(servers.map((s) => {
+    const nextServers = servers.map((s) => {
       if (s.id !== id) return s
       const env = Array.isArray(s.env) ? [...s.env] : []
       if (!env[index]) return s
       env[index] = { ...env[index], ...patch }
       return { ...s, env }
-    }))
+    })
+    persistServers(nextServers)
   }
 
   const removeEnvRow = (id: string, index: number) => {
-    setServers(servers.map((s) => {
+    const nextServers = servers.map((s) => {
       if (s.id !== id) return s
       const env = Array.isArray(s.env) ? s.env.filter((_, i) => i !== index) : []
       return { ...s, env }
-    }))
+    })
+    persistServers(nextServers)
   }
 
   const testConnection = async (id: string) => {
@@ -85,11 +106,6 @@ export default function McpConfig() {
     }
   }
 
-  const handleSave = () => {
-    saveSettings({ mcpServers: servers })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
 
   return (
     <div className="max-w-2xl">
@@ -235,14 +251,9 @@ export default function McpConfig() {
           添加服务器
         </button>
 
-        <button
-          onClick={handleSave}
-          className="flex items-center gap-2 px-4 py-2 bg-claude-primary
-                     text-white rounded-lg hover:bg-claude-primary-light transition-colors"
-        >
-          <Save size={16} />
-          {saved ? '已保存!' : '保存配置'}
-        </button>
+        <div className="flex items-center px-4 py-2 text-xs text-claude-text-muted">
+          {saved ? '已自动保存' : '自动保存中'}
+        </div>
       </div>
     </div>
   )

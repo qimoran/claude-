@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { diffLines } from 'diff'
 import ReactMarkdown from 'react-markdown'
@@ -834,7 +834,8 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
     '--fs-ui': `${settings.fontSizeUI}px`,
   } as React.CSSProperties
 
-  const useVirtual = messages.length >= VIRTUAL_THRESHOLD
+  // 流式回复阶段禁用虚拟化，避免长内容在快速发送下一条消息时出现绝对定位重叠
+  const useVirtual = messages.length >= VIRTUAL_THRESHOLD && !isLoading
 
   // 虚拟化列表（仅在消息数量超过阈值时启用）
   const virtualizer = useVirtualizer({
@@ -915,6 +916,24 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
       })
     }
   }, [messages.length, streamBlocks, scrollToBottom, useVirtual, virtualizer])
+
+  // 虚拟化开关切换时，强制在浏览器绘制前同步测量并修正滚动，避免位置抖动/重叠
+  const prevUseVirtualRef = useRef(useVirtual)
+  useLayoutEffect(() => {
+    const changed = prevUseVirtualRef.current !== useVirtual
+    prevUseVirtualRef.current = useVirtual
+    if (!changed) return
+
+    if (useVirtual) {
+      virtualizer.measure()
+    }
+
+    const el = scrollContainerRef.current
+    if (!el) return
+    if (isNearBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [useVirtual, virtualizer])
 
   // 面板切换恢复：聊天面板重新显示时刷新虚拟列表测量并修正滚动
   const wasActiveRef = useRef(isActive)
