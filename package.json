@@ -1,6 +1,6 @@
 {
   "name": "claude-code-gui",
-  "version": "1.0.10",
+  "version": "1.0.20",
   "description": "Claude Code 可视化桌面界面",
   "author": "Claude Code GUI Team",
   "main": "dist-electron/main.js",
@@ -36,6 +36,7 @@
     "@uiw/codemirror-theme-vscode": "^4.25.5",
     "@uiw/react-codemirror": "^4.25.5",
     "diff": "^8.0.3",
+    "echarts": "^6.0.0",
     "electron-updater": "^6.8.3",
     "idb": "^8.0.3",
     "lucide-react": "^0.312.0",
@@ -77,7 +78,7 @@
     "productName": "Claude Code GUI",
     "asar": true,
     "directories": {
-      "output": "release"
+      "output": "release-alt2"
     },
     "files": [
       "dist/**/*",
