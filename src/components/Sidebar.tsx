@@ -1,6 +1,6 @@
-import { MessageSquare, Terminal, Wrench, Settings, FolderTree, History } from 'lucide-react'
+import { MessageSquare, Terminal, Wrench, Settings, FolderTree, History, BarChart3 } from 'lucide-react'
 
-type Panel = 'chat' | 'commands' | 'tools' | 'settings' | 'files' | 'history'
+type Panel = 'chat' | 'commands' | 'tools' | 'settings' | 'files' | 'history' | 'analytics'
 
 interface SidebarProps {
   activePanel: Panel
@@ -19,6 +19,7 @@ const mainItems: NavItem[] = [
   { id: 'history', icon: <History size={18} />, label: '归档' },
   { id: 'commands', icon: <Terminal size={18} />, label: '命令' },
   { id: 'tools', icon: <Wrench size={18} />, label: '工具' },
+  { id: 'analytics', icon: <BarChart3 size={18} />, label: '分析' },
 ]
 
 const bottomItems: NavItem[] = [

@@ -8,8 +8,9 @@ import ToolsPanel from './components/Tools/ToolsPanel'
 import SettingsPanel from './components/Settings/SettingsPanel'
 import FileBrowserPanel from './components/FileBrowser/FileBrowserPanel'
 import SessionArchivePanel from './components/SessionArchive/SessionArchivePanel'
+import DataAnalysisPanel from './components/Analytics/DataAnalysisPanel'
 
-type Panel = 'chat' | 'commands' | 'tools' | 'settings' | 'files' | 'history'
+type Panel = 'chat' | 'commands' | 'tools' | 'settings' | 'files' | 'history' | 'analytics'
 
 const SHORTCUTS = [
   { keys: 'Ctrl+N', desc: '新建会话' },
@@ -17,7 +18,7 @@ const SHORTCUTS = [
   { keys: 'Ctrl+E', desc: '导出对话' },
   { keys: 'Ctrl+F', desc: '搜索消息' },
   { keys: 'Ctrl+,', desc: '打开设置' },
-  { keys: 'Ctrl+1~6', desc: '切换面板' },
+  { keys: 'Ctrl+1~7', desc: '切换面板' },
   { keys: 'Ctrl+/', desc: '快捷键帮助' },
   { keys: 'Esc', desc: '停止当前任务' },
   { keys: 'Enter', desc: '发送消息' },
@@ -113,10 +114,10 @@ function App() {
         return
       }
 
-      // Ctrl+1~6 — 面板切换
-      const panels: Panel[] = ['chat', 'files', 'history', 'commands', 'tools', 'settings']
+      // Ctrl+1~7 — 面板切换
+      const panels: Panel[] = ['chat', 'files', 'history', 'commands', 'tools', 'analytics', 'settings']
       const num = parseInt(e.key)
-      if (num >= 1 && num <= 6) {
+      if (num >= 1 && num <= 7) {
         e.preventDefault()
         setActivePanel(panels[num - 1])
         return
@@ -134,7 +135,7 @@ function App() {
   }, [])
 
   const handleCommandSwitchPanel = useCallback((panel: string) => {
-    if (['chat', 'commands', 'tools', 'settings', 'files', 'history'].includes(panel)) {
+    if (['chat', 'commands', 'tools', 'settings', 'files', 'history', 'analytics'].includes(panel)) {
       setActivePanel(panel as Panel)
     }
   }, [])
@@ -200,6 +201,9 @@ function App() {
           </div>
           <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'hidden'}`}>
             <SessionArchivePanel onSwitchToSession={handleSwitchToSession} />
+          </div>
+          <div className={`absolute inset-0 ${activePanel === 'analytics' ? '' : 'hidden'}`}>
+            <DataAnalysisPanel isActive={activePanel === 'analytics'} />
           </div>
         </main>
       </div>
