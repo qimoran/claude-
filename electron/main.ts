@@ -675,8 +675,59 @@ function resolvePathSafe(rawPath: string): string {
   return fs.realpathSync.native(path.resolve(rawPath))
 }
 
+function parseArgsWithQuotes(source: string): string[] {
+  const args: string[] = []
+  let current = ''
+  let quote: '"' | '\'' | null = null
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i]
+
+    if (quote) {
+      if (ch === quote) {
+        quote = null
+      } else if (ch === '\\' && i + 1 < source.length && source[i + 1] === quote) {
+        current += quote
+        i += 1
+      } else {
+        current += ch
+      }
+      continue
+    }
+
+    if (ch === '"' || ch === '\'') {
+      quote = ch
+      continue
+    }
+
+    if (/\s/.test(ch)) {
+      if (current) {
+        args.push(current)
+        current = ''
+      }
+      continue
+    }
+
+    current += ch
+  }
+
+  if (quote) throw new Error('参数引号未闭合')
+  if (current) args.push(current)
+  return args
+}
+
 function validateMcpCommand(commandRaw: string, argsRaw: string): { command: string; argsArray: string[] } {
-  const command = (commandRaw || '').trim()
+  let command = (commandRaw || '').trim()
+  if (!command) throw new Error('命令不能为空')
+
+  // 允许用户输入带包裹引号的路径（如 "C:/Program Files/nodejs/node.exe"）
+  if (
+    (command.startsWith('"') && command.endsWith('"'))
+    || (command.startsWith('\'') && command.endsWith('\''))
+  ) {
+    command = command.slice(1, -1).trim()
+  }
+
   if (!command) throw new Error('命令不能为空')
 
   // 仅允许可执行文件名/路径，不允许注入控制符
@@ -695,7 +746,7 @@ function validateMcpCommand(commandRaw: string, argsRaw: string): { command: str
     throw new Error('参数包含非法换行符')
   }
 
-  const argsArray = rawArgs ? rawArgs.split(/\s+/).filter(Boolean) : []
+  const argsArray = rawArgs ? parseArgsWithQuotes(rawArgs) : []
   if (argsArray.some(a => /[`;&|><]/.test(a))) {
     throw new Error('参数包含非法控制符')
   }

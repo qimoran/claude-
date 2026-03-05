@@ -84,7 +84,17 @@ const MCP_STDIO_MAX_BUFFER_CHARS = 5_000_000
 const DANGEROUS_MCP_COMMANDS = new Set(['cmd', 'powershell', 'pwsh', 'sh', 'bash', 'zsh'])
 
 function sanitizeCommandOrThrow(commandRaw: string): string {
-  const command = (commandRaw || '').trim()
+  let command = (commandRaw || '').trim()
+  if (!command) throw new Error('MCP 命令不能为空')
+
+  // 允许用户输入带包裹引号的路径（如 "C:/Program Files/nodejs/node.exe"）
+  if (
+    (command.startsWith('"') && command.endsWith('"'))
+    || (command.startsWith('\'') && command.endsWith('\''))
+  ) {
+    command = command.slice(1, -1).trim()
+  }
+
   if (!command) throw new Error('MCP 命令不能为空')
   if (/['"`;&|><\n\r]/.test(command)) throw new Error('MCP 命令包含非法字符')
 
@@ -96,12 +106,53 @@ function sanitizeCommandOrThrow(commandRaw: string): string {
   return command
 }
 
+function parseArgsWithQuotes(source: string): string[] {
+  const args: string[] = []
+  let current = ''
+  let quote: '"' | '\'' | null = null
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i]
+
+    if (quote) {
+      if (ch === quote) {
+        quote = null
+      } else if (ch === '\\' && i + 1 < source.length && source[i + 1] === quote) {
+        current += quote
+        i += 1
+      } else {
+        current += ch
+      }
+      continue
+    }
+
+    if (ch === '"' || ch === '\'') {
+      quote = ch
+      continue
+    }
+
+    if (/\s/.test(ch)) {
+      if (current) {
+        args.push(current)
+        current = ''
+      }
+      continue
+    }
+
+    current += ch
+  }
+
+  if (quote) throw new Error('MCP 参数引号未闭合')
+  if (current) args.push(current)
+  return args
+}
+
 function sanitizeArgs(rawArgs?: string): string[] {
   const source = (rawArgs || '').trim()
   if (!source) return []
   if (/[\n\r]/.test(source)) throw new Error('MCP 参数包含非法换行符')
 
-  const args = source.split(/\s+/).filter(Boolean)
+  const args = parseArgsWithQuotes(source)
   if (args.some(a => /[`;&|><]/.test(a))) throw new Error('MCP 参数包含非法控制符')
   return args
 }
