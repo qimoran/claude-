@@ -39,14 +39,12 @@
     "echarts": "^6.0.0",
     "electron-updater": "^6.8.3",
     "idb": "^8.0.3",
-    "jspdf": "^4.2.0",
     "lucide-react": "^0.312.0",
     "prism-react-renderer": "^2.3.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0",
-    "xlsx": "^0.18.5"
+    "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
