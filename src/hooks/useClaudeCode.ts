@@ -53,6 +53,13 @@ export interface SessionUsage {
   totalCost: number      // 美元
   requestCount: number   // API 调用轮次（含工具回传）
   messageCount: number   // 用户主动发送消息的次数
+  totalDurationMs: number // 会话累计请求耗时
+  lastDurationMs: number  // 最近一次请求耗时
+}
+
+interface RequestTiming {
+  startedAt: number
+  finalized: boolean
 }
 
 export interface ImageAttachment {
@@ -126,7 +133,35 @@ export interface RequestRouting {
   apiFormat: ApiFormat
 }
 
-const DEFAULT_USAGE: SessionUsage = { totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0, requestCount: 0, messageCount: 0 }
+const DEFAULT_USAGE: SessionUsage = {
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalCost: 0,
+  requestCount: 0,
+  messageCount: 0,
+  totalDurationMs: 0,
+  lastDurationMs: 0,
+}
+
+const normalizeUsage = (usage?: SessionUsage): SessionUsage => ({
+  totalInputTokens: usage?.totalInputTokens ?? 0,
+  totalOutputTokens: usage?.totalOutputTokens ?? 0,
+  totalCost: usage?.totalCost ?? 0,
+  requestCount: usage?.requestCount ?? 0,
+  messageCount: usage?.messageCount ?? 0,
+  totalDurationMs: usage?.totalDurationMs ?? 0,
+  lastDurationMs: usage?.lastDurationMs ?? 0,
+})
+
+const hasUsageData = (usage: SessionUsage): boolean => (
+  usage.totalInputTokens > 0
+  || usage.totalOutputTokens > 0
+  || usage.totalCost > 0
+  || usage.requestCount > 0
+  || usage.messageCount > 0
+  || usage.totalDurationMs > 0
+  || usage.lastDurationMs > 0
+)
 
 export function useClaudeCode(): UseClaudeCodeReturn {
   const { settings, activeModel } = useAppSettings()
@@ -242,15 +277,16 @@ export function useClaudeCode(): UseClaudeCodeReturn {
   const sessionsRef = useRef(sessions)
   // 已信任的会话（自动批准后续所有工具调用）
   const trustedSessionsRef = useRef<Set<string>>(new Set())
+  const requestTimingRef = useRef<Record<string, RequestTiming>>({})
 
   // ── Token 用量累积（按会话，持久化）────────────────────
   const [sessionUsage, setSessionUsage] = useState<SessionUsage>(() => {
     const activeSession = sessions.find(session => session.id === activeSessionId)
-    return activeSession?.usage || DEFAULT_USAGE
+    return normalizeUsage(activeSession?.usage)
   })
 
   const resetUsage = useCallback(() => {
-    setSessionUsage(DEFAULT_USAGE)
+    setSessionUsage({ ...DEFAULT_USAGE })
   }, [])
 
   useEffect(() => {
@@ -281,17 +317,13 @@ export function useClaudeCode(): UseClaudeCodeReturn {
   const usageFromSessionRef = useRef(false)
   useEffect(() => {
     usageFromSessionRef.current = true
-    if (activeSession?.usage) {
-      setSessionUsage(activeSession.usage)
-    } else {
-      setSessionUsage(DEFAULT_USAGE)
-    }
-  }, [activeSessionId])
+    setSessionUsage(normalizeUsage(activeSession?.usage))
+  }, [activeSession?.usage, activeSessionId])
 
   // usage 变化时同步到 session（持久化）
   // usageFromSessionRef 跳过"切换会话恢复 usage 后立即写回"的多余循环
   useEffect(() => {
-    if (!activeSessionId || sessionUsage.requestCount === 0) return
+    if (!activeSessionId || !hasUsageData(sessionUsage)) return
     if (usageFromSessionRef.current) {
       usageFromSessionRef.current = false
       return
@@ -324,6 +356,37 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     setSessions((prev) => prev.map((session) => (session.id === sessionId ? updater(session) : session)))
   }, [])
 
+  const finalizeRequestTiming = useCallback((sessionId: string, _reason: 'end' | 'error' | 'stop' | 'catch') => {
+    const timing = requestTimingRef.current[sessionId]
+    if (!timing || timing.finalized) return
+
+    const elapsedMs = Math.max(0, Date.now() - timing.startedAt)
+    timing.finalized = true
+    delete requestTimingRef.current[sessionId]
+
+    if (sessionId === activeSessionIdRef.current) {
+      setSessionUsage((prev) => ({
+        ...prev,
+        totalDurationMs: prev.totalDurationMs + elapsedMs,
+        lastDurationMs: elapsedMs,
+      }))
+      return
+    }
+
+    setSessions((prev) => prev.map((session) => {
+      if (session.id !== sessionId) return session
+      const usage = normalizeUsage(session.usage)
+      return {
+        ...session,
+        usage: {
+          ...usage,
+          totalDurationMs: usage.totalDurationMs + elapsedMs,
+          lastDurationMs: elapsedMs,
+        },
+      }
+    }))
+  }, [])
+
   const cleanupSessionCaches = useCallback((sessionId: string) => {
     setLoadingSessions((prev) => {
       const next = new Set(prev)
@@ -353,6 +416,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     })
     trustedSessionsRef.current.delete(sessionId)
     delete rollbackEpochRef.current[sessionId]
+    delete requestTimingRef.current[sessionId]
   }, [])
 
   // 处理流式数据（使用缓冲区 + rAF 批量刷新，减少高频重渲染）
@@ -503,7 +567,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
             // 非活跃会话：累积到 session 的 usage 字段（切换后恢复）
             setSessions(prev => prev.map(s => {
               if (s.id !== sid) return s
-              const u = s.usage || DEFAULT_USAGE
+              const u = normalizeUsage(s.usage)
               return {
                 ...s, usage: {
                   ...u,
@@ -552,6 +616,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamError((sid, streamError) => {
       if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       flushPendingEvents()
+      finalizeRequestTiming(sid, 'error')
       setErrorMap((prev) => ({ ...prev, [sid]: streamError }))
       setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
       setRollbackingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
@@ -565,6 +630,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamEnd((sid) => {
       if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       flushPendingEvents()
+      finalizeRequestTiming(sid, 'end')
       setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
       setRollbackingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
       const hasPendingForEpoch = pendingEventsRef.current.some(e => e.sessionId === sid && e.epoch === (rollbackEpochRef.current[sid] || 0))
@@ -583,7 +649,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
       if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current)
       electronAPI.removeStreamListeners()
     }
-  }, [])
+  }, [finalizeRequestTiming])
 
   // 流结束后，把对应会话的 streamBlocks 合并成 assistant message
   useEffect(() => {
@@ -724,6 +790,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     })
 
     const sid = activeSession.id
+    requestTimingRef.current[sid] = { startedAt: Date.now(), finalized: false }
     setSessionUsage(prev => ({ ...prev, messageCount: prev.messageCount + 1 }))
     setLoadingSessions((prev) => new Set(prev).add(sid))
     setErrorMap((prev) => { const next = { ...prev }; delete next[sid]; return next })
@@ -807,10 +874,12 @@ export function useClaudeCode(): UseClaudeCodeReturn {
               },
             ],
           }))
+          finalizeRequestTiming(sid, 'end')
           setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
         }, 1000)
       }
     } catch (err) {
+      finalizeRequestTiming(sid, 'catch')
       setErrorMap((prev) => ({ ...prev, [sid]: err instanceof Error ? err.message : '发生错误' }))
       setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
     }
@@ -837,6 +906,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     updateSession,
     rollbackingSessions,
     syncBackendHistory,
+    finalizeRequestTiming,
   ])
 
   const executeCommand = useCallback(async (command: string): Promise<string> => {
@@ -879,7 +949,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
       ...session,
       messages: [],
       lastGitStatus: '',
-      usage: DEFAULT_USAGE,
+      usage: { ...DEFAULT_USAGE },
     }))
     window.electronAPI?.clearHistory(activeSession.id)
     cleanupSessionCaches(activeSession.id)
@@ -1004,9 +1074,10 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     const sid = activeSession.id
     if (!loadingSessions.has(sid) && !rollbackingSessions.has(sid)) return
     await window.electronAPI.stopStream(sid)
+    finalizeRequestTiming(sid, 'stop')
     setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
     setRollbackingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
-  }, [activeSession, loadingSessions, rollbackingSessions])
+  }, [activeSession, loadingSessions, rollbackingSessions, finalizeRequestTiming])
 
   // 编辑用户消息并重新发送（截断该消息之后的所有历史）
   const editMessage = useCallback(async (messageId: string, newContent: string) => {

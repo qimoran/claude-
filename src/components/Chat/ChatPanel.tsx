@@ -7,6 +7,16 @@ import FileChangesPanel from './FileChangesPanel'
 import { useAppSettings } from '../../hooks/useAppSettings'
 import { formatTokens, formatCost } from '../../utils/pricing'
 
+function formatDuration(ms?: number): string {
+  if (!ms || ms <= 0) return '--'
+  if (ms < 1000) return `${ms}ms`
+  const totalSeconds = Math.floor(ms / 1000)
+  const seconds = totalSeconds % 60
+  const minutes = Math.floor(totalSeconds / 60)
+  if (minutes === 0) return `${seconds}s`
+  return `${minutes}m ${seconds}s`
+}
+
 interface ChatPanelProps {
   isActive?: boolean
 }
@@ -277,6 +287,8 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
     })),
   ]
 
+  const hasUsageStats = sessionUsage.requestCount > 0 || sessionUsage.totalDurationMs > 0
+
   // ── 更多操作下拉菜单 ──
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const moreMenuRef = useRef<HTMLDivElement>(null)
@@ -347,9 +359,9 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
         {/* 靠右区域 */}
         <div className="ml-auto flex items-center gap-0.5">
           {/* Token 用量 */}
-          {sessionUsage.requestCount > 0 && (
-            <span className="text-[10px] text-claude-text-dim mr-2 hidden sm:inline" title={`对话: ${sessionUsage.messageCount} | 调用: ${sessionUsage.requestCount} | 输入: ${formatTokens(sessionUsage.totalInputTokens)} | 输出: ${formatTokens(sessionUsage.totalOutputTokens)} | 费用: ${formatCost(sessionUsage.totalCost)}`}>
-              {formatTokens(sessionUsage.totalInputTokens + sessionUsage.totalOutputTokens)} | {formatCost(sessionUsage.totalCost)}
+          {hasUsageStats && (
+            <span className="text-[10px] text-claude-text-dim mr-2 hidden sm:inline" title={`对话: ${sessionUsage.messageCount} | 调用: ${sessionUsage.requestCount} | 输入: ${formatTokens(sessionUsage.totalInputTokens)} | 输出: ${formatTokens(sessionUsage.totalOutputTokens)} | 费用: ${formatCost(sessionUsage.totalCost)} | 耗时: ${formatDuration(sessionUsage.totalDurationMs)}${sessionUsage.lastDurationMs > 0 ? ` (最近 ${formatDuration(sessionUsage.lastDurationMs)})` : ''}`}>
+              {formatTokens(sessionUsage.totalInputTokens + sessionUsage.totalOutputTokens)} | {formatCost(sessionUsage.totalCost)} | {formatDuration(sessionUsage.totalDurationMs)}
             </span>
           )}
 
@@ -516,13 +528,15 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
       )}
 
       {/* Token 用量统计栏 */}
-      {sessionUsage.requestCount > 0 && (
+      {hasUsageStats && (
         <div className="px-4 py-1 border-b border-claude-border/30 flex items-center gap-3 text-[10px] text-claude-text-dim">
           <span>对话: {sessionUsage.messageCount}</span>
           <span>调用: {sessionUsage.requestCount}</span>
           <span>输入: {formatTokens(sessionUsage.totalInputTokens)}</span>
           <span>输出: {formatTokens(sessionUsage.totalOutputTokens)}</span>
           <span>费用: {formatCost(sessionUsage.totalCost)}</span>
+          <span>耗时: {formatDuration(sessionUsage.totalDurationMs)}</span>
+          <span>最近: {formatDuration(sessionUsage.lastDurationMs)}</span>
         </div>
       )}
 

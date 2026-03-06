@@ -17,7 +17,7 @@
 - 流式 SSE 响应 + 工具调用实时展示
 - 危险操作确认机制（允许执行 / 全部允许 / 拒绝），支持"全部允许"一键信任后续操作
 - **任务完成桌面通知**：后台会话完成时弹 Windows 桌面通知
-- Token 用量追踪与费用估算
+- Token 用量/耗时追踪与费用估算（会话累计 + 最近一次耗时）
 - 文件变更历史 + 回滚（快照系统）
 - 对话导入/导出（Markdown 格式）
 - 消息编辑、重新生成、回滚到任意消息/轮次
@@ -445,7 +445,7 @@ Tailwind 配置（`tailwind.config.js`）中定义的 Claude 品牌色：
 - **Windows**：NSIS 安装包 + 自定义图标（`build/icon.ico`）
 - **macOS**：DMG
 - **Linux**：AppImage
-- **输出目录**：`release-alt2/`
+- **输出目录**：`release/`
 - **包含文件**：`dist/**/*` + `dist-electron/**/*`
 
 ### ESLint（`eslint.config.js`）

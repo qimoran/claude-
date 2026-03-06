@@ -78,7 +78,7 @@
     "productName": "Claude Code GUI",
     "asar": true,
     "directories": {
-      "output": "release-alt2"
+      "output": "release"
     },
     "files": [
       "dist/**/*",

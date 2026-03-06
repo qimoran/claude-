@@ -51,7 +51,7 @@ npm run test:watch
 - `npm run build:app`：清理构建目录后执行 `vite build`。
 - `npm run build`：`typecheck + typecheck:electron + build:app + electron-builder`（完整生产构建+打包）。
 - `npm run release:patch`：版本号 `patch` 递增并执行完整构建。
-- `npm run release:publish`：版本号 `patch` 递增并执行构建后发布（`electron-builder --publish always`）。
+- `npm run release:publish`：版本号 `patch` 递增并执行构建后发布（`electron-builder --publish always`，产物输出到 `release/`）。
 - `npm run electron:dev`：并行启动 Vite + Electron（本地开发主流程）。
 - `npm run electron:build`：与 `build` 一样先做类型检查，再打包。
 - `npm run preview`：预览前端构建产物。
