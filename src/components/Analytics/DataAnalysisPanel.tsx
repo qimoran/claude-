@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, LineChart, AreaChart, PieChart, RefreshCw } from 'lucide-react'
 import * as echarts from 'echarts'
-import { read as readXlsx, utils as xlsxUtils } from 'xlsx'
-import { jsPDF } from 'jspdf'
 import {
   AggregateSeriesResult,
   AggregateSeriesOptions,
@@ -106,7 +104,26 @@ interface AnalysisTemplate {
   formulas: FormulaConfig[]
 }
 
+type XlsxLike = {
+  read: (data: ArrayBuffer, options: { type: 'array' }) => {
+    SheetNames: string[]
+    Sheets: Record<string, unknown>
+  }
+  utils: {
+    sheet_to_json: (sheet: unknown, options: { defval: string }) => Array<Record<string, unknown>>
+  }
+}
+
+type JsPdfLike = {
+  new (orientation: 'p' | 'l', unit: 'pt', format: [number, number]): {
+    addImage: (imageData: string, format: 'PNG', x: number, y: number, width: number, height: number) => void
+    save: (fileName: string) => void
+  }
+}
+
 const TEMPLATE_STORAGE_KEY = 'analytics-template-v5'
+const XLSX_SCRIPT_ID = 'analytics-sheetjs'
+const JSPDF_SCRIPT_ID = 'analytics-jspdf'
 
 function parseRenameMap(input: string): Record<string, string> {
   if (!input.trim()) {
@@ -124,6 +141,39 @@ function parseRenameMap(input: string): Record<string, string> {
 
 function parseDrillColumns(input: string): string[] {
   return input.split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+async function ensureScript(id: string, src: string): Promise<void> {
+  if (document.getElementById(id)) {
+    return
+  }
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.id = id
+    script.src = src
+    script.async = true
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error(`加载脚本失败: ${src}`))
+    document.head.appendChild(script)
+  })
+}
+
+async function ensureXlsx(): Promise<XlsxLike> {
+  await ensureScript(XLSX_SCRIPT_ID, 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js')
+  const win = window as unknown as { XLSX?: XlsxLike }
+  if (!win.XLSX) {
+    throw new Error('XLSX 引擎加载失败')
+  }
+  return win.XLSX
+}
+
+async function ensureJsPdf(): Promise<JsPdfLike> {
+  await ensureScript(JSPDF_SCRIPT_ID, 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js')
+  const win = window as unknown as { jspdf?: { jsPDF: JsPdfLike } }
+  if (!win.jspdf?.jsPDF) {
+    throw new Error('PDF 引擎加载失败')
+  }
+  return win.jspdf.jsPDF
 }
 
 function exportText(content: string, fileName: string, mimeType: string): void {
@@ -880,9 +930,10 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
   const handleImportFile = async (file: File) => {
     try {
       if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
-        const workbook = readXlsx(await file.arrayBuffer(), { type: 'array' })
+        const xlsx = await ensureXlsx()
+        const workbook = xlsx.read(await file.arrayBuffer(), { type: 'array' })
         const first = workbook.SheetNames[0]
-        const rows = xlsxUtils.sheet_to_json(workbook.Sheets[first], { defval: '' }) as Array<Record<string, unknown>>
+        const rows = xlsx.utils.sheet_to_json(workbook.Sheets[first], { defval: '' })
         setRawInput(JSON.stringify(rows, null, 2))
       } else {
         setRawInput(await file.text())
@@ -949,15 +1000,16 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
     anchor.click()
   }
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (!chartRef.current || !chartContainerRef.current) {
       return
     }
 
+    const JsPDF = await ensureJsPdf()
     const width = chartContainerRef.current.clientWidth
     const height = chartContainerRef.current.clientHeight
     const image = chartRef.current.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' })
-    const doc = new jsPDF('l', 'pt', [width, height])
+    const doc = new JsPDF('l', 'pt', [width, height])
     doc.addImage(image, 'PNG', 0, 0, width, height)
     doc.save('analytics.pdf')
   }
@@ -1569,7 +1621,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={handleExportPng} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">PNG</button>
                 <button onClick={handleExportSvg} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">SVG</button>
-                <button onClick={handleExportPdf} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">PDF</button>
+                <button onClick={() => void handleExportPdf()} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">PDF</button>
                 <button onClick={handleExportCsv} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">CSV</button>
               </div>
             </div>
