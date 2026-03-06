@@ -589,7 +589,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
         ],
       }
       chart.setOption(optionRef.current)
-            return
+      return
     }
 
     if (chartType === 'heatmap') {
@@ -618,7 +618,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
         series: [{ type: 'heatmap', data: heatmapData.data }],
       }
       chart.setOption(optionRef.current)
-            return
+      return
     }
 
     if (chartType === 'boxplot') {
@@ -633,7 +633,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
         series: [{ type: 'boxplot', data: boxplotData.data }],
       }
       chart.setOption(optionRef.current)
-            return
+      return
     }
 
     if (chartType === 'scatter' || chartType === 'bubble') {
@@ -668,7 +668,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
         }],
       }
       chart.setOption(optionRef.current)
-            return
+      return
     }
 
     const isLineLike = chartType === 'line' || chartType === 'area'
@@ -770,18 +770,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
     }
 
     chart.setOption(optionRef.current)
-    chartRef.current.off('click')
-    chartRef.current.on('click', (params: unknown) => {
-      const data = params as { name?: string }
-      if (!data.name) {
-        return
-      }
-      setSelectedCategory(data.name)
-      if (drillColumns.length > drillPath.length) {
-        setDrillPath((prev) => [...prev, data.name || ''])
-      }
-    })
-      }, [
+  }, [
     chartReady,
     chartType,
     metricColumn,
@@ -798,14 +787,31 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
     scatterData,
     heatmapData,
     boxplotData,
-    drillColumns.length,
-    drillPath.length,
   ])
+
+  useEffect(() => {
+    if (!chartReady || !chartRef.current) {
+      return
+    }
+
+    const chart = chartRef.current
+    const clickHandler = (params: unknown) => {
+      chartClickHandlerRef.current?.(params)
+    }
+
+    chart.off('click')
+    chart.on('click', clickHandler)
+
+    return () => {
+      chart.off('click', clickHandler)
+    }
+  }, [chartReady])
 
   useEffect(() => {
     if (!chartReady || !linkedChartRef.current) {
       return
     }
+
     const detailAgg = aggregateSeries(linkedRows, {
       categoryColumn: drillColumns[drillPath.length] || categoryColumn,
       metricColumn,
@@ -822,6 +828,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
       drilldownPath: [],
       selectedCategory: null,
     })
+
     linkedChartRef.current.setOption({
       title: { text: selectedCategory ? `联动: ${selectedCategory}` : '联动: 全部', textStyle: { fontSize: 12 } },
       grid: { left: 40, right: 12, top: 36, bottom: 28 },
@@ -829,8 +836,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
       xAxis: { type: 'category', data: detailAgg.categories },
       yAxis: { type: 'value' },
       series: [{ type: 'bar', data: detailAgg.primaryValues, barMaxWidth: 28 }],
-    }, true)
-    linkedChartRef.current.resize()
+    })
   }, [chartReady, linkedRows, selectedCategory, drillColumns, drillPath.length, categoryColumn, metricColumn, aggregateMode])
 
   useEffect(() => {
@@ -874,10 +880,9 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
   const handleImportFile = async (file: File) => {
     try {
       if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
-        const xlsx = await ensureXlsx()
-        const workbook = xlsx.read(await file.arrayBuffer(), { type: 'array' })
+        const workbook = readXlsx(await file.arrayBuffer(), { type: 'array' })
         const first = workbook.SheetNames[0]
-        const rows = xlsx.utils.sheet_to_json(workbook.Sheets[first], { defval: '' })
+        const rows = xlsxUtils.sheet_to_json(workbook.Sheets[first], { defval: '' }) as Array<Record<string, unknown>>
         setRawInput(JSON.stringify(rows, null, 2))
       } else {
         setRawInput(await file.text())
@@ -944,11 +949,11 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
     anchor.click()
   }
 
-  const handleExportPdf = async () => {
+  const handleExportPdf = () => {
     if (!chartRef.current || !chartContainerRef.current) {
       return
     }
-    const jsPDF = await ensureJsPdf()
+
     const width = chartContainerRef.current.clientWidth
     const height = chartContainerRef.current.clientHeight
     const image = chartRef.current.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' })
@@ -1564,7 +1569,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={handleExportPng} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">PNG</button>
                 <button onClick={handleExportSvg} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">SVG</button>
-                <button onClick={() => void handleExportPdf()} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">PDF</button>
+                <button onClick={handleExportPdf} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">PDF</button>
                 <button onClick={handleExportCsv} className="px-2 py-1 rounded-md text-xs bg-claude-surface border border-claude-border text-claude-text">CSV</button>
               </div>
             </div>
