@@ -23,6 +23,7 @@ import { cpp } from '@codemirror/lang-cpp'
 import { yaml } from '@codemirror/lang-yaml'
 import { EditorView } from '@codemirror/view'
 import { useAppSettings } from '../../hooks/useAppSettings'
+import { parseDataInput } from '../../utils/dataAnalysis'
 
 // ── 类型 ──────────────────────────────────────────────
 interface DirEntry {
@@ -32,6 +33,38 @@ interface DirEntry {
   size?: number
   children?: DirEntry[] // undefined=有子项待加载, []=确认空
 }
+
+interface PreviewTableData {
+  columns: string[]
+  rows: Array<Record<string, string>>
+  total: number
+}
+
+interface SelectedFileState {
+  path: string
+  name: string
+  kind: 'text' | 'image' | 'excel'
+  content: string
+  base64?: string
+  mimeType?: string
+  size?: number
+}
+
+type XlsxLike = {
+  read: (data: ArrayBuffer, options: { type: 'array' }) => {
+    SheetNames: string[]
+    Sheets: Record<string, unknown>
+  }
+  utils: {
+    sheet_to_json: (sheet: unknown, options: { defval: string }) => Array<Record<string, unknown>>
+  }
+}
+
+const XLSX_SCRIPT_ID = 'file-browser-sheetjs'
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg'])
+const EXCEL_EXTENSIONS = new Set(['.xls', '.xlsx'])
+const TABLE_PREVIEW_ROW_LIMIT = 200
 
 // ── 工具函数 ──────────────────────────────────────────
 function getExt(name: string): string {
@@ -80,7 +113,13 @@ function formatSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
-function getLangFromExt(name: string): string {
+function getLangFromExt(name: string, kind: SelectedFileState['kind'] = 'text'): string {
+  if (kind === 'image') return 'image'
+  if (kind === 'excel') return 'excel'
+
+  const ext = getExt(name)
+  if (ext === '.csv') return 'csv'
+
   const map: Record<string, string> = {
     '.ts': 'typescript', '.tsx': 'tsx', '.js': 'javascript', '.jsx': 'jsx',
     '.json': 'json', '.css': 'css', '.html': 'html', '.md': 'markdown',
@@ -91,7 +130,7 @@ function getLangFromExt(name: string): string {
     '.scss': 'css', '.less': 'css',
     '.svelte': 'html', '.mdx': 'markdown',
   }
-  return map[getExt(name)] || 'text'
+  return map[ext] || 'text'
 }
 
 // CodeMirror 语言扩展映射
@@ -115,6 +154,62 @@ function getCmLangExtension(langId: string) {
     case 'bash': case 'batch': return [] // 无专用扩展，用纯文本
     default: return []
   }
+}
+
+function normalizeCellValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function normalizeTableRows(rows: Array<Record<string, unknown>>): PreviewTableData {
+  const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
+  const normalizedRows = rows.map((row) => {
+    const next: Record<string, string> = {}
+    columns.forEach((column) => {
+      next[column] = normalizeCellValue(row[column])
+    })
+    return next
+  })
+  return {
+    columns,
+    rows: normalizedRows,
+    total: normalizedRows.length,
+  }
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = window.atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes.buffer
+}
+
+async function ensureScript(id: string, src: string): Promise<void> {
+  if (document.getElementById(id)) return
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.id = id
+    script.src = src
+    script.async = true
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error(`加载脚本失败: ${src}`))
+    document.head.appendChild(script)
+  })
+}
+
+async function ensureXlsx(): Promise<XlsxLike> {
+  await ensureScript(XLSX_SCRIPT_ID, 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js')
+  const win = window as unknown as { XLSX?: XlsxLike }
+  if (!win.XLSX) throw new Error('XLSX 引擎加载失败')
+  return win.XLSX
 }
 
 // ── 图标组件 ──────────────────────────────────────────
@@ -264,7 +359,8 @@ export default function FileBrowserPanel() {
   const searchRef = useRef<HTMLInputElement>(null)
 
   // 文件预览
-  const [selectedFile, setSelectedFile] = useState<{ path: string; name: string; content: string } | null>(null)
+  const [selectedFile, setSelectedFile] = useState<SelectedFileState | null>(null)
+  const [previewTable, setPreviewTable] = useState<PreviewTableData | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [previewMode, setPreviewMode] = useState<'source' | 'rendered'>('rendered')
@@ -323,38 +419,104 @@ export default function FileBrowserPanel() {
   const handleFileClick = useCallback(async (entry: DirEntry) => {
     if (!window.electronAPI?.readFileContent || !cwd) return
     setFileLoading(true)
+    setEditing(false)
+    setSaveMsg(null)
+    setPreviewTable(null)
+
+    const ext = getExt(entry.name)
+    const isCsvExt = ext === '.csv'
+    const isExcelExt = EXCEL_EXTENSIONS.has(ext)
+    const isImageExt = IMAGE_EXTENSIONS.has(ext)
+
     try {
       const result = await window.electronAPI.readFileContent(cwd, entry.path)
       if (result.error) {
-        setSelectedFile({ path: entry.path, name: entry.name, content: `// ${result.error}` })
-      } else {
-        setSelectedFile({ path: entry.path, name: entry.name, content: result.content || '' })
+        setSelectedFile({ path: entry.path, name: entry.name, kind: 'text', content: `// ${result.error}`, size: result.size })
+        return
       }
+
+      const inferredKind: SelectedFileState['kind'] = isImageExt
+        ? 'image'
+        : isExcelExt
+          ? 'excel'
+          : result.kind || 'text'
+
+      const nextFile: SelectedFileState = {
+        path: entry.path,
+        name: entry.name,
+        kind: inferredKind,
+        content: result.content || '',
+        base64: result.base64,
+        mimeType: result.mimeType,
+        size: result.size,
+      }
+
+      if (isCsvExt) {
+        try {
+          const parsed = parseDataInput(nextFile.content)
+          setPreviewTable({
+            columns: parsed.columns,
+            rows: parsed.rows.slice(0, TABLE_PREVIEW_ROW_LIMIT),
+            total: parsed.rows.length,
+          })
+        } catch (csvError) {
+          nextFile.content = `// CSV 预览失败: ${(csvError as Error).message}\n\n${nextFile.content}`
+        }
+      } else if (isExcelExt && result.base64) {
+        try {
+          const xlsx = await ensureXlsx()
+          const workbook = xlsx.read(base64ToArrayBuffer(result.base64), { type: 'array' })
+          const firstSheetName = workbook.SheetNames[0]
+          if (!firstSheetName) {
+            nextFile.content = '// Excel 文件不包含可读取的工作表'
+            nextFile.kind = 'text'
+          } else {
+            const rows = xlsx.utils.sheet_to_json(workbook.Sheets[firstSheetName], { defval: '' })
+            const normalized = normalizeTableRows(rows)
+            setPreviewTable({
+              ...normalized,
+              rows: normalized.rows.slice(0, TABLE_PREVIEW_ROW_LIMIT),
+            })
+            nextFile.content = JSON.stringify(rows, null, 2)
+          }
+        } catch (excelError) {
+          nextFile.content = `// Excel 预览失败: ${(excelError as Error).message}`
+          nextFile.kind = 'text'
+        }
+      }
+
+      setSelectedFile(nextFile)
     } catch {
-      setSelectedFile({ path: entry.path, name: entry.name, content: '// 读取失败' })
+      setSelectedFile({ path: entry.path, name: entry.name, kind: 'text', content: '// 读取失败' })
     } finally {
       setFileLoading(false)
     }
   }, [cwd])
 
   const handleCopy = useCallback(() => {
-    if (!selectedFile) return
+    if (!selectedFile || selectedFile.kind === 'image') return
     navigator.clipboard.writeText(selectedFile.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }, [selectedFile])
 
-  const isMarkdown = selectedFile ? ['.md', '.mdx'].includes(getExt(selectedFile.name)) : false
-  const isHtml = selectedFile ? ['.html', '.htm'].includes(getExt(selectedFile.name)) : false
+  const selectedExt = selectedFile ? getExt(selectedFile.name) : ''
+  const isMarkdown = selectedFile ? ['.md', '.mdx'].includes(selectedExt) : false
+  const isHtml = selectedFile ? ['.html', '.htm'].includes(selectedExt) : false
+  const isCsv = !!selectedFile && selectedExt === '.csv'
+  const isExcel = !!selectedFile && (EXCEL_EXTENSIONS.has(selectedExt) || selectedFile.kind === 'excel')
+  const isImage = !!selectedFile && (IMAGE_EXTENSIONS.has(selectedExt) || selectedFile.kind === 'image')
+  const isBinaryFile = isImage || isExcel
+  const supportsRenderedToggle = isMarkdown || isHtml || isCsv || isExcel
+  const canEditFile = !!selectedFile && !isBinaryFile
+  const showTablePreview = !!previewTable && (isCsv || isExcel)
 
-  // 自动切换：md/html 文件默认渲染，其他文件默认源码
+  // 自动切换：支持渲染预览的文件默认渲染，其他文件默认源码
   useEffect(() => {
-    if (selectedFile) {
-      const ext = getExt(selectedFile.name)
-      const previewable = ['.md', '.mdx', '.html', '.htm'].includes(ext)
-      setPreviewMode(previewable ? 'rendered' : 'source')
-    }
-  }, [selectedFile])
+    if (!selectedFile) return
+    const previewable = isMarkdown || isHtml || isCsv || isExcel || isImage
+    setPreviewMode(previewable ? 'rendered' : 'source')
+  }, [selectedFile, isMarkdown, isHtml, isCsv, isExcel, isImage])
 
   // 在浏览器中打开文件
   const handleOpenInBrowser = useCallback(() => {
@@ -407,7 +569,7 @@ export default function FileBrowserPanel() {
   // CodeMirror 语言扩展（缓存避免重建）
   const cmExtensions = useMemo(() => {
     if (!selectedFile) return []
-    const langId = getLangFromExt(selectedFile.name)
+    const langId = getLangFromExt(selectedFile.name, selectedFile.kind)
     const langExt = getCmLangExtension(langId)
     return [
       cmReadonlyTheme,
@@ -599,12 +761,12 @@ export default function FileBrowserPanel() {
                 <FileCode size={14} className={getExtColor(selectedFile.name)} />
                 <span className="text-xs text-claude-text truncate font-mono">{selectedFile.name}</span>
                 <span className="text-[10px] text-claude-text-muted px-1.5 py-0.5 bg-claude-surface rounded flex-shrink-0">
-                  {getLangFromExt(selectedFile.name)}
+                  {getLangFromExt(selectedFile.name, selectedFile.kind)}
                 </span>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
-                {/* Markdown/HTML 源码/预览切换 */}
-                {(isMarkdown || isHtml) && (
+                {/* 预览/源码切换 */}
+                {supportsRenderedToggle && (
                   <div className="flex items-center bg-claude-surface rounded overflow-hidden mr-1">
                     <button
                       onClick={() => setPreviewMode('rendered')}
@@ -639,7 +801,7 @@ export default function FileBrowserPanel() {
                   </button>
                 )}
                 {/* 编辑/保存 */}
-                {editing ? (
+                {canEditFile && editing ? (
                   <>
                     <button
                       onClick={handleSave}
@@ -656,7 +818,7 @@ export default function FileBrowserPanel() {
                       取消
                     </button>
                   </>
-                ) : (
+                ) : canEditFile ? (
                   <button
                     onClick={enterEdit}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] text-claude-text-muted hover:text-claude-text rounded hover:bg-claude-surface-light transition-colors"
@@ -664,18 +826,20 @@ export default function FileBrowserPanel() {
                   >
                     <Pencil size={12} /> 编辑
                   </button>
-                )}
+                ) : null}
                 {saveMsg && <span className={`text-[10px] ml-1 ${saveMsg.startsWith('保存失败') ? 'text-red-400' : 'text-green-400'}`}>{saveMsg}</span>}
-                <button
-                  onClick={handleCopy}
-                  className="p-1 text-claude-text-muted hover:text-claude-text rounded hover:bg-claude-surface-light"
-                  title="复制内容"
-                >
-                  <Copy size={12} />
-                </button>
+                {!isImage && (
+                  <button
+                    onClick={handleCopy}
+                    className="p-1 text-claude-text-muted hover:text-claude-text rounded hover:bg-claude-surface-light"
+                    title="复制内容"
+                  >
+                    <Copy size={12} />
+                  </button>
+                )}
                 {copied && <span className="text-[10px] text-green-400 ml-1">OK</span>}
                 <button
-                  onClick={() => { setSelectedFile(null); setEditing(false); setSaveMsg(null) }}
+                  onClick={() => { setSelectedFile(null); setPreviewTable(null); setEditing(false); setSaveMsg(null) }}
                   className="p-1 text-claude-text-muted hover:text-claude-text rounded hover:bg-claude-surface-light"
                 >
                   <X size={14} />
@@ -684,10 +848,50 @@ export default function FileBrowserPanel() {
             </div>
 
             {/* 预览内容 */}
-            <div className="flex-1 overflow-auto">
+            <div className={`flex-1 ${showTablePreview && previewMode === 'rendered' && !editing ? 'overflow-hidden' : 'overflow-auto'}`}>
               {fileLoading ? (
                 <div className="flex items-center gap-2 p-4 text-xs text-claude-text-muted">
                   <Loader2 size={14} className="animate-spin" /> 加载中...
+                </div>
+              ) : isImage && previewMode === 'rendered' ? (
+                <div className="h-full w-full flex items-center justify-center p-4 bg-claude-bg">
+                  {selectedFile.base64 ? (
+                    <img
+                      src={`data:${selectedFile.mimeType || 'image/png'};base64,${selectedFile.base64}`}
+                      alt={selectedFile.name}
+                      className="max-w-full max-h-full object-contain rounded border border-claude-border"
+                    />
+                  ) : (
+                    <p className="text-xs text-red-400">图片数据缺失，无法预览</p>
+                  )}
+                </div>
+              ) : showTablePreview && previewMode === 'rendered' && !editing ? (
+                <div className="h-full overflow-auto bg-claude-surface">
+                  <div className="px-3 py-2 border-b border-claude-border bg-claude-bg/80 sticky top-0 z-10 text-xs text-claude-text-muted">
+                    表格预览：显示 {previewTable?.rows.length ?? 0}/{previewTable?.total ?? 0} 行
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-[29px] bg-claude-bg/95">
+                      <tr>
+                        {(previewTable?.columns || []).slice(0, 20).map((column) => (
+                          <th key={column} className="text-left font-medium text-claude-text-muted px-2 py-1.5 border-b border-claude-border whitespace-nowrap">
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(previewTable?.rows || []).map((row, index) => (
+                        <tr key={`${index}-${(previewTable?.columns || []).map(c => row[c] || '').join('|')}`} className="odd:bg-claude-bg/30">
+                          {(previewTable?.columns || []).slice(0, 20).map((column) => (
+                            <td key={column} className="px-2 py-1.5 text-claude-text border-b border-claude-border/50 whitespace-nowrap">
+                              {(row[column] || '-').toString()}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               ) : isMarkdown && previewMode === 'rendered' && !editing ? (
                 renderMarkdown(selectedFile.content)
@@ -733,7 +937,7 @@ export default function FileBrowserPanel() {
                 {selectedFile.path}
               </p>
               <span className="text-[10px] text-claude-text-muted/60 ml-2 flex-shrink-0">
-                {selectedFile.content.split('\n').length} 行
+                {selectedFile.kind === 'text' ? `${selectedFile.content.split('\n').length} 行` : (selectedFile.size ? formatSize(selectedFile.size) : '')}
               </span>
             </div>
           </div>

@@ -5,7 +5,7 @@
 
 ## 1. 仓库事实（先读）
 
-- 技术栈：Electron 28 + React 18 + TypeScript 5 + Vite 5 + Tailwind CSS 3。
+- 技术栈：Electron 40 + React 18 + TypeScript 5 + Vite 7 + Tailwind CSS 3。
 - 包管理器：npm（存在 `package-lock.json`）。
 - 已配置 ESLint（flat config + typescript-eslint）和 Vitest（jsdom 环境）。
 - 未配置 Prettier。
@@ -28,8 +28,13 @@
 ```bash
 npm install
 npm run dev
-npm run electron:dev
+npm run typecheck
+npm run typecheck:electron
+npm run build:app
 npm run build
+npm run release:patch
+npm run release:publish
+npm run electron:dev
 npm run electron:build
 npm run preview
 npm run lint
@@ -41,9 +46,14 @@ npm run test:watch
 
 - `npm install`：安装依赖。
 - `npm run dev`：仅启动 Vite 前端开发服务（默认 5173）。
+- `npm run typecheck`：检查 `src/` TypeScript 类型。
+- `npm run typecheck:electron`：检查 `electron/` 与 `vite.config.ts` 类型。
+- `npm run build:app`：清理构建目录后执行 `vite build`。
+- `npm run build`：`typecheck + typecheck:electron + build:app + electron-builder`（完整生产构建+打包）。
+- `npm run release:patch`：版本号 `patch` 递增并执行完整构建。
+- `npm run release:publish`：版本号 `patch` 递增并执行构建后发布（`electron-builder --publish always`）。
 - `npm run electron:dev`：并行启动 Vite + Electron（本地开发主流程）。
-- `npm run build`：`tsc && vite build && electron-builder`（完整生产构建+打包）。
-- `npm run electron:build`：`vite build && electron-builder`（不先做 tsc 检查）。
+- `npm run electron:build`：与 `build` 一样先做类型检查，再打包。
 - `npm run preview`：预览前端构建产物。
 - `npm run lint`：ESLint 检查 `src/` 和 `electron/`。
 - `npm run test`：运行 Vitest 全部测试。
@@ -51,9 +61,13 @@ npm run test:watch
 
 ### 3.2 类型检查（推荐）
 
-仓库无独立 `typecheck` script，建议直接运行：
+仓库已提供独立脚本，也可直接运行 `tsc`：
 
 ```bash
+npm run typecheck
+npm run typecheck:electron
+
+# 或等价命令
 npx tsc --noEmit
 npx tsc -p tsconfig.node.json --noEmit
 ```
@@ -154,6 +168,7 @@ npx vitest run path/to/file.test.ts -t "case name"
 - 界面文案默认中文。
 - 样式基于 Tailwind + `claude-*` 主题色变量。
 - 新增交互需兼顾状态反馈（加载、错误、禁用态、连接态）。
+- 文件浏览器预览约定：CSV/Excel/图片可渲染预览；图片与 Excel 视为二进制预览，默认不提供编辑保存入口。
 
 ## 5. 代理执行建议（实操）
 
@@ -164,6 +179,7 @@ npx vitest run path/to/file.test.ts -t "case name"
   - `electron/api-client.ts`：API 调用层
   - `electron/snapshots.ts`：文件快照系统
   - `electron/updater.ts`：自动更新
+  - `electron/mcp-runtime.ts`：MCP 运行时（连接、工具发现、调用、超时与清理）
   - 前端核心 hooks：`useClaudeCode.ts`、`useAppSettings.ts`
 - 优先小步修改；涉及协议字段时一次性全链路打通。
 - 提交前至少执行：
@@ -180,7 +196,7 @@ npx vitest run path/to/file.test.ts -t "case name"
 - 是否保持中文 UI 文案一致性？
 - 是否更新了相关文档与类型桥接？
 - 是否使用真实可运行命令完成验证？
-- Electron 主进程改动是否同步到正确的子模块（types/tools/api-client/snapshots/updater）？
+- Electron 主进程改动是否同步到正确的子模块（types/tools/api-client/snapshots/updater/mcp-runtime）？
 
 ---
 

@@ -616,13 +616,31 @@ const IGNORED_DIRS = new Set([
   'coverage', '.turbo', '.output', '.svelte-kit',
 ])
 
+const MAX_PREVIEW_TEXT_BYTES = 500_000
+const MAX_PREVIEW_BINARY_BYTES = 5 * 1024 * 1024
+
+const IMAGE_MIME_MAP: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+}
+
+const EXCEL_MIME_MAP: Record<string, string> = {
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+}
+
 const IGNORED_EXTENSIONS = new Set([
   '.exe', '.dll', '.so', '.dylib', '.bin', '.obj', '.o',
   '.pyc', '.pyo', '.class', '.jar', '.war',
   '.zip', '.tar', '.gz', '.rar', '.7z',
-  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp',
   '.mp3', '.mp4', '.avi', '.mov', '.wav',
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+  '.pdf', '.doc', '.docx',
   '.lock',
 ])
 
@@ -821,9 +839,30 @@ ipcMain.handle('read-file-content', async (_event, payload: { root: string; file
 
     if (!fs.existsSync(fullPath)) return { error: '文件不存在' }
     const stat = fs.statSync(fullPath)
-    if (stat.size > 500_000) return { error: '文件过大（>500KB）' }
+    if (!stat.isFile()) return { error: '目标不是文件' }
+
+    const ext = path.extname(fullPath).toLowerCase()
+    const imageMimeType = IMAGE_MIME_MAP[ext]
+    if (imageMimeType) {
+      if (stat.size > MAX_PREVIEW_BINARY_BYTES) {
+        return { error: '图片文件过大（>5MB）' }
+      }
+      const base64 = fs.readFileSync(fullPath).toString('base64')
+      return { kind: 'image', base64, mimeType: imageMimeType, size: stat.size }
+    }
+
+    const excelMimeType = EXCEL_MIME_MAP[ext]
+    if (excelMimeType) {
+      if (stat.size > MAX_PREVIEW_BINARY_BYTES) {
+        return { error: 'Excel 文件过大（>5MB）' }
+      }
+      const base64 = fs.readFileSync(fullPath).toString('base64')
+      return { kind: 'excel', base64, mimeType: excelMimeType, size: stat.size }
+    }
+
+    if (stat.size > MAX_PREVIEW_TEXT_BYTES) return { error: '文件过大（>500KB）' }
     const content = fs.readFileSync(fullPath, 'utf-8')
-    return { content, size: stat.size }
+    return { kind: 'text', content, size: stat.size }
   } catch (err) {
     return { error: (err as Error).message }
   }

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, LineChart, AreaChart, PieChart, RefreshCw } from 'lucide-react'
 import * as echarts from 'echarts'
+import { read as readXlsx, utils as xlsxUtils } from 'xlsx'
+import { jsPDF } from 'jspdf'
 import {
   AggregateSeriesResult,
   AggregateSeriesOptions,
@@ -104,26 +106,7 @@ interface AnalysisTemplate {
   formulas: FormulaConfig[]
 }
 
-type XlsxLike = {
-  read: (data: ArrayBuffer, options: { type: 'array' }) => {
-    SheetNames: string[]
-    Sheets: Record<string, unknown>
-  }
-  utils: {
-    sheet_to_json: (sheet: unknown, options: { defval: string }) => Array<Record<string, unknown>>
-  }
-}
-
-type JsPdfLike = {
-  new (orientation: 'p' | 'l', unit: 'pt', format: [number, number]): {
-    addImage: (imageData: string, format: 'PNG', x: number, y: number, width: number, height: number) => void
-    save: (fileName: string) => void
-  }
-}
-
 const TEMPLATE_STORAGE_KEY = 'analytics-template-v5'
-const XLSX_SCRIPT_ID = 'analytics-sheetjs'
-const JSPDF_SCRIPT_ID = 'analytics-jspdf'
 
 function parseRenameMap(input: string): Record<string, string> {
   if (!input.trim()) {
@@ -141,39 +124,6 @@ function parseRenameMap(input: string): Record<string, string> {
 
 function parseDrillColumns(input: string): string[] {
   return input.split(',').map((item) => item.trim()).filter(Boolean)
-}
-
-async function ensureScript(id: string, src: string): Promise<void> {
-  if (document.getElementById(id)) {
-    return
-  }
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement('script')
-    script.id = id
-    script.src = src
-    script.async = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error(`加载脚本失败: ${src}`))
-    document.head.appendChild(script)
-  })
-}
-
-async function ensureXlsx(): Promise<XlsxLike> {
-  await ensureScript(XLSX_SCRIPT_ID, 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js')
-  const win = window as unknown as { XLSX?: XlsxLike }
-  if (!win.XLSX) {
-    throw new Error('XLSX 引擎加载失败')
-  }
-  return win.XLSX
-}
-
-async function ensureJsPdf(): Promise<JsPdfLike> {
-  await ensureScript(JSPDF_SCRIPT_ID, 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js')
-  const win = window as unknown as { jspdf?: { jsPDF: JsPdfLike } }
-  if (!win.jspdf?.jsPDF) {
-    throw new Error('PDF 引擎加载失败')
-  }
-  return win.jspdf.jsPDF
 }
 
 function exportText(content: string, fileName: string, mimeType: string): void {
@@ -245,6 +195,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
   const optionRef = useRef<echarts.EChartsOption>({})
   const workerRef = useRef<Worker | null>(null)
   const requestIdRef = useRef(0)
+  const chartClickHandlerRef = useRef<(params: unknown) => void>()
 
   const parsed = useMemo(() => {
     try {
@@ -391,31 +342,39 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
 
     const shouldUseWorker = analysisRows.length > 900
     if (shouldUseWorker) {
-      workerRef.current?.terminate()
-      const worker = new Worker(new URL('../../workers/analysisWorker.ts', import.meta.url), { type: 'module' })
-      workerRef.current = worker
+      if (!workerRef.current) {
+        const worker = new Worker(new URL('../../workers/analysisWorker.ts', import.meta.url), { type: 'module' })
+        worker.onmessage = (event: MessageEvent<{ success: boolean; result?: AggregateSeriesResult; error?: string; requestId?: number }>) => {
+          if ((event.data.requestId || 0) !== requestIdRef.current) {
+            return
+          }
+          if (!event.data.success || !event.data.result) {
+            setChartError(event.data.error || 'Worker 聚合失败')
+            return
+          }
+          setSeries(event.data.result)
+          setChartError(null)
+        }
+        workerRef.current = worker
+      }
+
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
       setEngine('worker')
-      worker.onmessage = (event: MessageEvent<{ success: boolean; result?: AggregateSeriesResult; error?: string }>) => {
-        if (requestId !== requestIdRef.current) {
-          return
-        }
-        if (!event.data.success || !event.data.result) {
-          setChartError(event.data.error || 'Worker 聚合失败')
-          return
-        }
-        setSeries(event.data.result)
-        setChartError(null)
-      }
-      worker.postMessage({ rows: analysisRows, options: aggregateOptions })
-      return () => worker.terminate()
+      workerRef.current.postMessage({ rows: analysisRows, options: aggregateOptions, requestId })
+      return
     }
 
     setEngine('main')
     setSeries(aggregateSeries(analysisRows, aggregateOptions))
-    return undefined
   }, [analysisRows, aggregateOptions, categoryColumn, metricColumn])
+
+  useEffect(() => {
+    return () => {
+      workerRef.current?.terminate()
+      workerRef.current = null
+    }
+  }, [])
 
   const scatterData = useMemo(() => buildScatterData(
     series.filteredRows,
@@ -478,8 +437,19 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
       return series.filteredRows
     }
     const currentColumn = drillColumns[drillPath.length] || categoryColumn
-    return series.filteredRows.filter((row) => (row[currentColumn] || '').trim() === selectedCategory)
+    return series.filteredRows.filter((row) => String(row[currentColumn] || '').trim() === selectedCategory)
   }, [selectedCategory, series.filteredRows, drillColumns, drillPath.length, categoryColumn])
+
+  chartClickHandlerRef.current = (params: unknown) => {
+    const data = params as { name?: string }
+    if (!data.name) {
+      return
+    }
+    setSelectedCategory(data.name)
+    if (drillColumns.length > drillPath.length) {
+      setDrillPath((prev) => [...prev, data.name || ''])
+    }
+  }
 
   useEffect(() => {
     let disposed = false
@@ -525,6 +495,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
       return
     }
 
+    const chart = chartRef.current
     const cssPrimaryColor = getThemeColor('--c-primary', '#569cd6')
     const textColor = getThemeColor('--c-text', '#d4d4d4')
     const mutedTextColor = getThemeColor('--c-text-muted', '#858585')
@@ -617,9 +588,8 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
           },
         ],
       }
-      chartRef.current.setOption(optionRef.current, true)
-      chartRef.current.resize()
-      return
+      chart.setOption(optionRef.current)
+            return
     }
 
     if (chartType === 'heatmap') {
@@ -647,9 +617,8 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
         },
         series: [{ type: 'heatmap', data: heatmapData.data }],
       }
-      chartRef.current.setOption(optionRef.current, true)
-      chartRef.current.resize()
-      return
+      chart.setOption(optionRef.current)
+            return
     }
 
     if (chartType === 'boxplot') {
@@ -663,9 +632,8 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
         },
         series: [{ type: 'boxplot', data: boxplotData.data }],
       }
-      chartRef.current.setOption(optionRef.current, true)
-      chartRef.current.resize()
-      return
+      chart.setOption(optionRef.current)
+            return
     }
 
     if (chartType === 'scatter' || chartType === 'bubble') {
@@ -699,9 +667,8 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
             : undefined,
         }],
       }
-      chartRef.current.setOption(optionRef.current, true)
-      chartRef.current.resize()
-      return
+      chart.setOption(optionRef.current)
+            return
     }
 
     const isLineLike = chartType === 'line' || chartType === 'area'
@@ -802,7 +769,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
       series: seriesList as echarts.EChartsOption['series'],
     }
 
-    chartRef.current.setOption(optionRef.current, true)
+    chart.setOption(optionRef.current)
     chartRef.current.off('click')
     chartRef.current.on('click', (params: unknown) => {
       const data = params as { name?: string }
@@ -814,8 +781,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
         setDrillPath((prev) => [...prev, data.name || ''])
       }
     })
-    chartRef.current.resize()
-  }, [
+      }, [
     chartReady,
     chartType,
     metricColumn,

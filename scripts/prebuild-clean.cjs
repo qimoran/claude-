@@ -29,14 +29,38 @@ async function removeWithRetry(targetPath, attempts = 8) {
   }
 }
 
+async function resolveReleaseDir(root) {
+  try {
+    const packageJsonPath = path.join(root, 'package.json')
+    const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8')
+    const packageJson = JSON.parse(packageJsonContent)
+    const outputDir = packageJson?.build?.directories?.output
+    if (typeof outputDir === 'string' && outputDir.trim()) {
+      return path.join(root, outputDir.trim())
+    }
+  } catch {
+    // ignore package.json parse failure
+  }
+  return path.join(root, 'release')
+}
+
 async function main() {
   const root = path.resolve(__dirname, '..')
-  const releaseDir = path.join(root, 'release')
+  const releaseDir = await resolveReleaseDir(root)
   const winUnpackedDir = path.join(releaseDir, 'win-unpacked')
 
   killProcessOnWindows('Claude Code GUI.exe')
 
-  await removeWithRetry(winUnpackedDir)
+  try {
+    await removeWithRetry(winUnpackedDir)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const isLocked = /EPERM|EBUSY|ENOTEMPTY/i.test(message)
+    if (!isLocked) {
+      throw error
+    }
+    console.warn(`[prebuild-clean] skip locked win-unpacked: ${message}`)
+  }
   await removeWithRetry(path.join(root, 'dist'))
   await removeWithRetry(path.join(root, 'dist-electron'))
 }

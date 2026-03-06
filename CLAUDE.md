@@ -11,7 +11,8 @@
 **核心特性：**
 - **独立 Agent 并行**：每个会话拥有独立的流式状态，可并行运行，切换会话不中断执行
 - **会话级工作目录**：每个会话可设置独立的工作目录（优先于全局设置）
-- 双 API 端点 + 独立格式：主端点 / 备用端点各自独立配置 API 格式（Anthropic / OpenAI）
+- 三 API 端点 + 独立格式：主端点 / 备用端点 / 中转站端点，各自独立配置 API 格式（Anthropic / OpenAI）
+- 模型级端点路由：支持在模型管理中按模型指定 auto / main / alt / third
 - **最大输出 Tokens 可配置**：设置面板滑块控制（1024-32768），前后端全链路传递
 - 流式 SSE 响应 + 工具调用实时展示
 - 危险操作确认机制（允许执行 / 全部允许 / 拒绝），支持"全部允许"一键信任后续操作
@@ -23,11 +24,12 @@
 - 消息搜索（关键词高亮）
 - Prompt 模板命令菜单（输入 `/` 触发）
 - 图片/Vision 支持（粘贴、拖放、文件选择）
-- 文件浏览器面板（目录树 + 文件预览 + Markdown 渲染）
+- 文件浏览器面板（目录树 + 文件预览 + Markdown 渲染 + CSV/Excel 表格预览 + 图片预览 + 本地文件编辑保存）
 - 会话归档面板
+- 高级数据分析面板（CSV/JSON/Excel 导入、ECharts 多图形、可选 Worker 聚合）
 - API 连接状态检测（30 秒轮询）
 - Git 状态自动附加到提示词
-- 自定义系统提示词（per-session）
+- 自定义系统提示词（per-session）+ Claude Code 风格系统提示词全局开关
 - MCP 服务器配置与连接测试
 - Hooks 配置（PreToolUse / PostToolUse / Notification）
 - 自定义模型列表管理
@@ -49,8 +51,21 @@ npm install
 # 开发模式（同时启动 Vite + Electron）
 npm run electron:dev
 
-# 生产构建
+# 类型检查
+npm run typecheck
+npm run typecheck:electron
+
+# 仅构建前端与 Electron 产物（不打包安装器）
+npm run build:app
+
+# 生产构建（含类型检查 + 打包）
 npm run build
+
+# patch 版本发布构建
+npm run release:patch
+
+# patch 版本并发布（GitHub Release）
+npm run release:publish
 
 # 预览生产构建
 npm run preview
@@ -86,9 +101,9 @@ node scripts/generate-icon.cjs
 ## 架构
 
 ### 技术栈
-- **Electron 28**：桌面应用框架（无边框窗口）
+- **Electron 40**：桌面应用框架（无边框窗口）
 - **React 18 + TypeScript 5**：前端 UI，严格类型检查
-- **Vite 5**：构建工具 + HMR + Electron 插件
+- **Vite 7**：构建工具 + HMR + Electron 插件
 - **Tailwind CSS 3**：自定义 Claude 暗色主题
 - **react-markdown + remark-gfm**：Markdown 渲染
 - **prism-react-renderer**：代码块语法高亮
@@ -102,20 +117,22 @@ node scripts/generate-icon.cjs
 
 ```
 src/
-├── App.tsx                  # 根组件：6 面板路由、全局快捷键、自定义标题栏
+├── App.tsx                  # 根组件：7 面板路由、全局快捷键、自定义标题栏
 ├── main.tsx                 # React 入口
 ├── components/
-│   ├── Sidebar.tsx          # 侧边导航栏（对话/文件/归档/命令/工具/设置）
+│   ├── Sidebar.tsx          # 侧边导航栏（对话/文件/归档/命令/工具/分析/设置）
 │   ├── ErrorBoundary.tsx    # React 错误边界
 │   ├── Chat/
-│   │   ├── ChatPanel.tsx    # 聊天面板（会话管理、连接状态、Git、导出、工具栏）
+│   │   ├── ChatPanel.tsx    # 聊天面板（会话管理、连接状态、Git、导出、主题切换、系统提示词配置）
 │   │   ├── MessageList.tsx  # 消息渲染（Markdown、代码高亮、工具调用/确认 UI、Diff 视图）
 │   │   ├── InputArea.tsx    # 输入区域（Enter 发送、Shift+Enter 换行、/命令菜单、图片拖放）
 │   │   └── FileChangesPanel.tsx # 文件变更历史面板（快照列表、按轮次回滚）
 │   ├── FileBrowser/
-│   │   └── FileBrowserPanel.tsx # 文件浏览器（目录树、文件预览、Markdown 渲染、代码高亮）
+│   │   └── FileBrowserPanel.tsx # 文件浏览器（目录树、文件预览、Markdown 渲染、CSV/Excel 表格预览、图片预览、代码高亮、编辑保存）
 │   ├── SessionArchive/
 │   │   └── SessionArchivePanel.tsx # 会话归档面板（历史会话浏览、恢复）
+│   ├── Analytics/
+│   │   └── DataAnalysisPanel.tsx # 高级数据分析面板（ECharts 可视化、清洗/聚合、导出）
 │   ├── Commands/
 │   │   ├── CommandPanel.tsx # 斜杠命令浏览面板
 │   │   └── CommandCard.tsx  # 单个命令卡片
@@ -123,7 +140,7 @@ src/
 │   │   ├── ToolsPanel.tsx   # 工具参考面板
 │   │   └── ToolCard.tsx     # 单个工具卡片
 │   └── Settings/
-│       ├── SettingsPanel.tsx # 设置主面板（6 个子标签页）
+│       ├── SettingsPanel.tsx # 设置主面板（7 个子标签页）
 │       ├── HooksConfig.tsx  # Hooks 配置管理
 │       └── McpConfig.tsx    # MCP 服务器配置管理
 ├── hooks/
@@ -139,6 +156,8 @@ src/
 │   ├── pricing.ts           # 模型定价表 + 费用计算（Anthropic/OpenAI/DeepSeek）
 │   ├── sessionStorage.ts    # 会话存储：创建/加载/保存（localStorage 同步层）
 │   └── idbStorage.ts        # IndexedDB 异步存储 + localStorage 迁移
+├── workers/
+│   └── analysisWorker.ts    # 数据分析 Worker（聚合计算下沉）
 └── styles/
     └── global.css           # 全局样式 + Tailwind 导入
 
@@ -147,6 +166,7 @@ electron/
 ├── types.ts                 # 跨模块共享类型（ContentBlock、ApiConfig、FileSnapshot 等）
 ├── tools.ts                 # 工具定义、危险命令判断、工具执行逻辑
 ├── api-client.ts            # API 调用层：Anthropic/OpenAI 流式与非流式请求
+├── mcp-runtime.ts           # MCP 运行时：连接管理、工具发现与调用
 ├── snapshots.ts             # 文件快照系统：保存/回滚/清理
 ├── updater.ts               # 自动更新（electron-updater）
 ├── shared-types.ts          # 前后端共享的 IPC 载荷类型
@@ -181,7 +201,7 @@ build/
 - **list_dir**：递归遍历（最深 3 层，过滤 node_modules/.git 等，最多 500 条）
 - **search_files**：Windows 用 `findstr`，Unix 用 `grep -rn`
 
-#### 2. 双 API 格式兼容
+#### 2. API 格式兼容
 
 - **Anthropic 格式**：`/v1/messages`，SSE 事件流（message_start → content_block_start → content_block_delta → content_block_stop → message_delta）
 - **OpenAI 格式**：`/v1/chat/completions`，SSE 事件流（delta.content + delta.tool_calls），自动转换消息格式和工具定义
@@ -268,22 +288,24 @@ assistant 消息不是纯文本，而是 `ContentBlock[]` 数组：
 
 #### 12. 设置系统（`useAppSettings.ts`）
 
-通过 React Context 提供全局设置，6 个配置子面板：
-- **基础设置**：默认模型、自定义模型名、工作目录、字体大小、模型参数（最大输出 Tokens）
-- **API 配置**：主端点 + 备用端点（各自独立 API Key 和格式）、连接测试
-- **模型管理**：增删模型列表（预置 GLM-5、Gemini 3 系列、Claude 4.5/4.6、GPT-4o、DeepSeek）
+通过 React Context 提供全局设置，7 个配置子面板：
+- **基础设置**：默认模型、自定义模型名、工作目录、字体大小、模型参数（最大输出 Tokens）、聊天主题
+- **API 配置**：主端点 + 备用端点 + 中转站端点（各自独立 API Key 和格式）、连接测试
+- **模型管理**：增删模型列表，并可按模型指定端点（auto/main/alt/third）
 - **Hooks**：PreToolUse / PostToolUse / Notification 事件的自定义命令
 - **MCP 服务器**：名称、命令、参数、连接测试
+- **更新**：版本检查、下载与安装
 - **权限**：`dangerouslySkipPermissions` 开关
 
 设置持久化到 `localStorage`（key: `claude-code-gui-settings-v3`），支持 v1/v2 迁移。迁移逻辑自动将旧 `127.0.0.1:3456` 端点替换为直连 API。
 
-#### 13. 双端点路由（`useClaudeCode.ts`）
+#### 13. 三端点路由（`useClaudeCode.ts`）
 
-- `isAltEndpointModel()`：判断模型是否走备用端点（`gemini-*`、`claude-sonnet-4-5*`、`claude-opus-4-6*`）
-- `selectRouting()`：根据模型选择端点、Key、格式
-- 主端点和备用端点各自独立的 `apiFormat`（`anthropic` / `openai`）
-- 路由信息显示在模型选择器的 tooltip 中（精简工具栏后不再占用独立空间）
+- `resolveModelEndpointSlot()`：按模型配置（auto/main/alt/third）决定端点槽位
+- `isAltEndpointModel()`：作为 auto 策略的一部分，按模型前缀回退到备用端点（`gemini-*`、`claude-sonnet-4-5*`、`claude-opus-4-6*`）
+- `selectRouting()`：根据槽位选择端点、Key、格式（main/alt/third）
+- 主端点、备用端点、中转站端点均支持独立 `apiFormat`（`anthropic` / `openai`）
+- 路由信息显示在模型选择器 tooltip 中，便于确认当前请求走向
 
 #### 14. CSP 安全策略（`electron/main.ts`）
 
@@ -297,7 +319,15 @@ assistant 消息不是纯文本，而是 `ContentBlock[]` 数组：
 - 使用 `electron-updater`，仅在生产环境启用
 - 不自动下载，先通知用户有新版本
 - IPC 接口：`check-for-update`、`download-update`、`install-update`
-- 启动后 10 秒自动检查一次，通过 `update-status` 事件通知前端
+- 启动后 10 秒自动检查一次，之后每 30 分钟自动检查一次
+- 通过 `update-status` 事件向前端推送检查/下载/完成/失败状态
+
+#### 16. MCP Runtime（`electron/mcp-runtime.ts`）
+
+- 独立管理 MCP 进程生命周期：初始化、健康状态、超时与会话结束清理
+- 同时兼容 `content-length` 与 `jsonl` 两类 stdio 传输模式
+- 通过别名规则将 MCP 工具映射为 `mcp__{serverId}__{toolName}`，统一纳入工具调用循环
+- 对命令、参数、环境变量做安全校验（阻断高风险 shell 命令和非法控制符）
 
 ---
 
@@ -314,6 +344,7 @@ assistant 消息不是纯文本，而是 `ContentBlock[]` 数组：
 | `claude-execute` | invoke | 非流式单次执行（兼容，支持 useClaudeCodePrompt） |
 | `claude-stream-stop` | invoke | 中止指定会话的请求（按 sessionId） |
 | `clear-history` | invoke | 清除指定会话历史 |
+| `sync-session-history` | invoke | 同步前端会话历史到主进程（回滚映射修正） |
 | `tool-confirm-response` | invoke | 用户确认/拒绝工具执行 |
 | `select-folder` | invoke | 打开文件夹选择对话框 |
 | `select-files` | invoke | 打开文件选择对话框（附加图片/文件） |
@@ -326,9 +357,17 @@ assistant 消息不是纯文本，而是 `ContentBlock[]` 数组：
 | `restore-file` | invoke | 恢复单个文件到某个快照版本 |
 | `get-snapshots` | invoke | 获取指定会话的文件快照列表 |
 | `list-directory` | invoke | 列出目录内容（文件浏览器） |
-| `read-file-content` | invoke | 读取文件内容（文件浏览器预览） |
+| `read-file-content` | invoke | 读取文件内容（文件浏览器预览：文本或二进制 base64，如图片/Excel） |
+| `write-file-content` | invoke | 写入文件内容（文件浏览器编辑保存） |
+| `open-external` | invoke | 打开外部链接或在系统中打开本地文件（受路径校验） |
 | `show-notification` | invoke | 发送桌面通知 |
+| `get-app-version` | invoke | 获取当前应用版本号 |
+| `check-for-update` | invoke | 检查更新 |
+| `download-update` | invoke | 下载更新 |
+| `install-update` | invoke | 安装更新并重启 |
 | `secure-store-set/get/delete` | invoke | 安全存储（加密 API Key） |
+| `remove-stream-listeners` | bridge | 移除流式事件监听器（前端卸载清理） |
+| `on-update-status` / `remove-update-listeners` | bridge | 订阅/清理自动更新状态事件 |
 
 ### 主进程 → 渲染进程（流式事件）
 
@@ -356,7 +395,7 @@ assistant 消息不是纯文本，而是 `ContentBlock[]` 数组：
 | `Ctrl+,` | 打开设置面板 |
 | `Ctrl+E` | 导出对话 |
 | `Ctrl+F` | 搜索消息 |
-| `Ctrl+1~6` | 切换面板（对话/文件/归档/命令/工具/设置） |
+| `Ctrl+1~7` | 切换面板（对话/文件/归档/命令/工具/分析/设置；设置为 Ctrl+7） |
 | `Ctrl+/` | 快捷键帮助浮层 |
 | `Escape` | 停止当前任务 |
 | `Enter` | 发送消息 |
@@ -406,7 +445,7 @@ Tailwind 配置（`tailwind.config.js`）中定义的 Claude 品牌色：
 - **Windows**：NSIS 安装包 + 自定义图标（`build/icon.ico`）
 - **macOS**：DMG
 - **Linux**：AppImage
-- **输出目录**：`release/`
+- **输出目录**：`release-alt2/`
 - **包含文件**：`dist/**/*` + `dist-electron/**/*`
 
 ### ESLint（`eslint.config.js`）
@@ -474,7 +513,7 @@ Tailwind 配置（`tailwind.config.js`）中定义的 Claude 品牌色：
 ### 代码规范
 - 所有 UI 文本使用中文
 - Tailwind 工具类 + 自定义 Claude 主题色
-- 组件按功能分目录（Chat / FileBrowser / SessionArchive / Commands / Tools / Settings）
+- 组件按功能分目录（Chat / FileBrowser / SessionArchive / Analytics / Commands / Tools / Settings）
 - 类型定义集中在 `src/types/electron.d.ts` 和各模块内部
 
 ---
@@ -484,13 +523,17 @@ Tailwind 配置（`tailwind.config.js`）中定义的 Claude 品牌色：
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | 主端点 | `https://www.aidawan.fun` | OpenAI 兼容格式 |
-| 备用端点 | `http://127.0.0.1:8045` | OpenAI 兼容格式（Gemini/Claude 4.5 等大模型） |
+| 备用端点 | `http://127.0.0.1:8045` | OpenAI 兼容格式（Gemini/Claude 4.5/4.6 等模型） |
+| 中转站端点 | `https://fucaixie.xyz` | 可按模型显式指定走 third 端点 |
 | 主端点格式 | `openai` | OpenAI Chat Completions API |
 | 备用端点格式 | `openai` | OpenAI Chat Completions API |
+| 中转站端点格式 | `openai` | OpenAI Chat Completions API |
 | 默认模型 | `glm-5` | 智谱 GLM-5 |
 
-模型路由规则（`isAltEndpointModel`）：
-- `gemini-*` → 备用端点
-- `claude-sonnet-4-5*` → 备用端点
-- `claude-opus-4-6*` → 备用端点
-- 其他 → 主端点
+模型路由规则（`resolveModelEndpointSlot` + `isAltEndpointModel`）：
+- 若模型在“模型管理”里显式指定端点（main/alt/third），优先使用显式配置
+- 若端点为 auto：
+  - `gemini-*` → 备用端点
+  - `claude-sonnet-4-5*` → 备用端点
+  - `claude-opus-4-6*` → 备用端点
+  - 其他 → 主端点

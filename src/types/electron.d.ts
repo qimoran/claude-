@@ -172,7 +172,10 @@ interface ElectronAPI {
     dirPath?: string
   }>
   readFileContent: (root: string, filePath: string) => Promise<{
+    kind?: 'text' | 'image' | 'excel'
     content?: string
+    base64?: string
+    mimeType?: string
     size?: number
     error?: string
   }>

@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSnapshots: (sessionId: string) =>
     ipcRenderer.invoke('get-snapshots', sessionId),
 
-  // 目录树和文件读取
+  // 目录树和文件读取（文本/图片/Excel 预览）
   listDirectory: (root: string, dirPath?: string, showHidden?: boolean) =>
     ipcRenderer.invoke('list-directory', { root, dirPath, showHidden }),
   readFileContent: (root: string, filePath: string) =>

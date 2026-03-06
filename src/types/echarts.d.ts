@@ -1,17 +1,3 @@
-interface EChartsOption {
-  [key: string]: unknown
-}
-
-interface EChartsInstance {
-  setOption: (option: EChartsOption, notMerge?: boolean) => void
-  resize: () => void
-  dispose: () => void
-}
-
-interface EChartsGlobal {
-  init: (dom: HTMLElement) => EChartsInstance
-}
-
-interface Window {
-  echarts?: EChartsGlobal
-}
+// ECharts 类型现在通过 npm 包 'echarts' 直接提供
+// 此文件保留用于可能的全局类型扩展
+export {}
