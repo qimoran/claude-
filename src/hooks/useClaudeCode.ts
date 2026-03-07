@@ -588,7 +588,9 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamData((sid, data) => {
       try {
         const evt = JSON.parse(data) as Record<string, unknown>
-        markModelTimingStarted(sid)
+        if (evt.type === 'text' || evt.type === 'tool_call' || evt.type === 'image') {
+          markModelTimingStarted(sid)
+        }
 
         if (evt.type === 'usage') {
           const usage: UsageTokens = {
@@ -672,7 +674,6 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamError((sid, streamError) => {
       if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       flushPendingEvents()
-      markModelTimingStarted(sid)
       finalizeRequestTiming(sid, 'error')
       setErrorMap((prev) => ({ ...prev, [sid]: streamError }))
       setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
@@ -687,7 +688,6 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamEnd((sid) => {
       if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       flushPendingEvents()
-      markModelTimingStarted(sid)
       finalizeRequestTiming(sid, 'end')
       setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
       setRollbackingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
