@@ -47,22 +47,29 @@ async function resolveReleaseDir(root) {
 async function main() {
   const root = path.resolve(__dirname, '..')
   const releaseDir = await resolveReleaseDir(root)
-  const winUnpackedDir = path.join(releaseDir, 'win-unpacked')
+  const cleanupTargets = [
+    path.join(root, 'dist'),
+    path.join(root, 'dist-electron'),
+    releaseDir,
+    path.join(root, 'release-alt'),
+    path.join(root, 'release-alt2'),
+    path.join(root, 'release-alt3')
+  ]
 
   killProcessOnWindows('Claude Code GUI.exe')
 
-  try {
-    await removeWithRetry(winUnpackedDir)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const isLocked = /EPERM|EBUSY|ENOTEMPTY/i.test(message)
-    if (!isLocked) {
-      throw error
+  for (const targetPath of new Set(cleanupTargets)) {
+    try {
+      await removeWithRetry(targetPath)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const isLocked = /EPERM|EBUSY|ENOTEMPTY/i.test(message)
+      if (!isLocked) {
+        throw error
+      }
+      console.warn(`[prebuild-clean] skip locked path ${targetPath}: ${message}`)
     }
-    console.warn(`[prebuild-clean] skip locked win-unpacked: ${message}`)
   }
-  await removeWithRetry(path.join(root, 'dist'))
-  await removeWithRetry(path.join(root, 'dist-electron'))
 }
 
 main().catch((error) => {

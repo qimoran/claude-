@@ -53,8 +53,10 @@ export interface SessionUsage {
   totalCacheCreationInputTokens: number
   totalCacheReadInputTokens: number
   totalReasoningTokens: number
-  totalCost: number      // 美元
+  totalCost: number      // 累计费用（美元）
+  lastCost: number       // 最近一次请求费用（美元）
   unknownPriceRequestCount: number
+  lastUnknownPriceRequestCount: number
   requestCount: number   // API 请求次数
   messageCount: number   // 用户主动发送消息的次数
   totalDurationMs: number // 会话累计请求耗时
@@ -147,7 +149,9 @@ const DEFAULT_USAGE: SessionUsage = {
   totalCacheReadInputTokens: 0,
   totalReasoningTokens: 0,
   totalCost: 0,
+  lastCost: 0,
   unknownPriceRequestCount: 0,
+  lastUnknownPriceRequestCount: 0,
   requestCount: 0,
   messageCount: 0,
   totalDurationMs: 0,
@@ -163,7 +167,9 @@ const normalizeUsage = (usage?: SessionUsage): SessionUsage => ({
   totalCacheReadInputTokens: usage?.totalCacheReadInputTokens ?? 0,
   totalReasoningTokens: usage?.totalReasoningTokens ?? 0,
   totalCost: usage?.totalCost ?? 0,
+  lastCost: usage?.lastCost ?? 0,
   unknownPriceRequestCount: usage?.unknownPriceRequestCount ?? 0,
+  lastUnknownPriceRequestCount: usage?.lastUnknownPriceRequestCount ?? 0,
   requestCount: usage?.requestCount ?? 0,
   messageCount: usage?.messageCount ?? 0,
   totalDurationMs: usage?.totalDurationMs ?? 0,
@@ -179,7 +185,9 @@ const hasUsageData = (usage: SessionUsage): boolean => (
   || usage.totalCacheReadInputTokens > 0
   || usage.totalReasoningTokens > 0
   || usage.totalCost > 0
+  || usage.lastCost > 0
   || usage.unknownPriceRequestCount > 0
+  || usage.lastUnknownPriceRequestCount > 0
   || usage.requestCount > 0
   || usage.messageCount > 0
   || usage.totalDurationMs > 0
@@ -579,7 +587,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamData((sid, data) => {
       try {
         const evt = JSON.parse(data) as Record<string, unknown>
-        if (evt.type === 'text' || evt.type === 'tool_call' || evt.type === 'image') {
+        if (evt.type === 'model_start' || evt.type === 'text' || evt.type === 'tool_call' || evt.type === 'image') {
           markModelTimingStarted(sid)
         }
 
@@ -597,6 +605,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
           const normalizedModel = normalizeModelIdForPricing(modelForCost)
           const modelFromSettings = settings.models.find((m) => normalizeModelIdForPricing(m.modelId) === normalizedModel)
           const costResult = calculateUsageCost(modelForCost, usage, modelFromSettings?.pricing)
+          const unknownRequestDelta = costResult.hasKnownPricing ? 0 : 1
 
           if (sid === activeSessionIdRef.current) {
             setSessionUsage((prev) => ({
@@ -607,7 +616,9 @@ export function useClaudeCode(): UseClaudeCodeReturn {
               totalCacheReadInputTokens: prev.totalCacheReadInputTokens + (usage.cacheReadInputTokens || 0),
               totalReasoningTokens: prev.totalReasoningTokens + (usage.reasoningTokens || 0),
               totalCost: prev.totalCost + costResult.cost,
-              unknownPriceRequestCount: prev.unknownPriceRequestCount + (costResult.hasKnownPricing ? 0 : 1),
+              lastCost: costResult.cost,
+              unknownPriceRequestCount: prev.unknownPriceRequestCount + unknownRequestDelta,
+              lastUnknownPriceRequestCount: unknownRequestDelta,
             }))
           } else {
             setSessions(prev => prev.map(s => {
@@ -623,7 +634,9 @@ export function useClaudeCode(): UseClaudeCodeReturn {
                   totalCacheReadInputTokens: u.totalCacheReadInputTokens + (usage.cacheReadInputTokens || 0),
                   totalReasoningTokens: u.totalReasoningTokens + (usage.reasoningTokens || 0),
                   totalCost: u.totalCost + costResult.cost,
-                  unknownPriceRequestCount: u.unknownPriceRequestCount + (costResult.hasKnownPricing ? 0 : 1),
+                  lastCost: costResult.cost,
+                  unknownPriceRequestCount: u.unknownPriceRequestCount + unknownRequestDelta,
+                  lastUnknownPriceRequestCount: unknownRequestDelta,
                 },
               }
             }))

@@ -1566,6 +1566,12 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
         }))
       }
 
+      const reportModelStart = () => {
+        event.sender.send('claude-stream-data', sessionId, JSON.stringify({
+          type: 'model_start',
+        }))
+      }
+
       const reportUsage = (usage: {
         inputTokens: number
         outputTokens: number
@@ -1601,7 +1607,7 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
           if (apiConfig.format === 'openai') {
             streamResult = await callOpenAIStream(
               history, systemPrompt, model, apiConfig, abortCtrl,
-              appendText, appendToolUse, appendImage, reportUsage, maxTokens, mergedTools,
+              appendText, appendToolUse, appendImage, reportUsage, reportModelStart, maxTokens, mergedTools,
             )
           } else {
             const body = JSON.stringify({
@@ -1610,7 +1616,7 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
             })
             streamResult = await callAnthropicStream(
               body, apiConfig, abortCtrl,
-              appendText, appendToolUse, appendImage, reportUsage,
+              appendText, appendToolUse, appendImage, reportUsage, reportModelStart,
             )
           }
           lastError = null

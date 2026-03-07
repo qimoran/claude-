@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Suspense, lazy, useState, useEffect, useCallback } from 'react'
 import { Minus, Square, X } from 'lucide-react'
 import { useAppSettings } from './hooks/useAppSettings'
 import Sidebar from './components/Sidebar'
@@ -8,7 +8,7 @@ import ToolsPanel from './components/Tools/ToolsPanel'
 import SettingsPanel from './components/Settings/SettingsPanel'
 import FileBrowserPanel from './components/FileBrowser/FileBrowserPanel'
 import SessionArchivePanel from './components/SessionArchive/SessionArchivePanel'
-import DataAnalysisPanel from './components/Analytics/DataAnalysisPanel'
+const DataAnalysisPanel = lazy(() => import('./components/Analytics/DataAnalysisPanel'))
 
 type Panel = 'chat' | 'commands' | 'tools' | 'settings' | 'files' | 'history' | 'analytics'
 
@@ -203,7 +203,9 @@ function App() {
             <SessionArchivePanel onSwitchToSession={handleSwitchToSession} />
           </div>
           <div className={`absolute inset-0 ${activePanel === 'analytics' ? '' : 'hidden'}`}>
-            <DataAnalysisPanel isActive={activePanel === 'analytics'} />
+            <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-claude-text-muted">分析面板加载中...</div>}>
+              <DataAnalysisPanel isActive={activePanel === 'analytics'} />
+            </Suspense>
           </div>
         </main>
       </div>

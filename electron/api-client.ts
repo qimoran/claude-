@@ -58,6 +58,7 @@ export function callAnthropicStream(
     cacheReadInputTokens?: number
     reasoningTokens?: number
   }) => void,
+  onModelStart?: () => void,
 ): Promise<{
   stopReason: string | null
   contentBlocks: ContentBlock[]
@@ -96,6 +97,7 @@ export function callAnthropicStream(
         let stopReason: string | null = null
         let totalInputTokens = 0
         let totalOutputTokens = 0
+        let modelStarted = false
 
         let lastEventType = ''
 
@@ -131,6 +133,10 @@ export function callAnthropicStream(
               if (evt.type === 'message_start' && evt.message?.usage) {
                 totalInputTokens = evt.message.usage.input_tokens || 0
               } else if (evt.type === 'content_block_start') {
+                if (!modelStarted && evt.content_block?.type && evt.content_block.type !== 'thinking') {
+                  modelStarted = true
+                  onModelStart?.()
+                }
                 if (evt.content_block?.type === 'tool_use') {
                   currentToolUse = {
                     id: evt.content_block.id,
@@ -303,6 +309,7 @@ export function callOpenAIStream(
     cacheReadInputTokens?: number
     reasoningTokens?: number
   }) => void,
+  onModelStart?: () => void,
   maxTokens = 8192,
   toolsAnthropic: AnthropicToolDefinition[] = [],
 ): Promise<{
@@ -352,6 +359,7 @@ export function callOpenAIStream(
         const toolCallBuffers = new Map<number, { id: string; name: string; argsBuf: string }>()
         const finalizedToolIds = new Set<string>()
         let stopReason: string | null = null
+        let modelStarted = false
         // 累积 usage 数据，只在流结束时上报一次（避免每个 chunk 都触发导致虚增）
         let lastPromptTokens = 0
         let lastCompletionTokens = 0
@@ -422,6 +430,17 @@ export function callOpenAIStream(
 
               const delta = choice.delta
               if (!delta) continue
+
+              if (!modelStarted) {
+                const hasContent = typeof delta.content === 'string'
+                  ? delta.content.length > 0
+                  : Array.isArray(delta.content)
+                const hasToolCalls = Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0
+                if (hasContent || hasToolCalls) {
+                  modelStarted = true
+                  onModelStart?.()
+                }
+              }
 
               if (typeof delta.content === 'string') {
                 onText(delta.content)

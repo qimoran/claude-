@@ -82,7 +82,12 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "!release/**",
+      "!release-alt/**",
+      "!release-alt2/**",
+      "!release-alt3/**",
+      "!.claude/**"
     ],
     "publish": [
       {
