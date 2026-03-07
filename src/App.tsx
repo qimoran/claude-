@@ -6,8 +6,8 @@ import ChatPanel from './components/Chat/ChatPanel'
 import CommandPanel from './components/Commands/CommandPanel'
 import ToolsPanel from './components/Tools/ToolsPanel'
 import SettingsPanel from './components/Settings/SettingsPanel'
-import FileBrowserPanel from './components/FileBrowser/FileBrowserPanel'
 import SessionArchivePanel from './components/SessionArchive/SessionArchivePanel'
+const FileBrowserPanel = lazy(() => import('./components/FileBrowser/FileBrowserPanel'))
 const DataAnalysisPanel = lazy(() => import('./components/Analytics/DataAnalysisPanel'))
 
 type Panel = 'chat' | 'commands' | 'tools' | 'settings' | 'files' | 'history' | 'analytics'
@@ -197,7 +197,9 @@ function App() {
             <SettingsPanel />
           </div>
           <div className={`absolute inset-0 ${activePanel === 'files' ? '' : 'hidden'}`}>
-            <FileBrowserPanel />
+            <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-claude-text-muted">文件面板加载中...</div>}>
+              <FileBrowserPanel />
+            </Suspense>
           </div>
           <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'hidden'}`}>
             <SessionArchivePanel onSwitchToSession={handleSwitchToSession} />

@@ -1,15 +1,14 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { diffLines } from 'diff'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Highlight, themes } from 'prism-react-renderer'
 import {
   User, Bot, Terminal, FileText, FolderTree, Search, Pencil, FilePlus2,
   ChevronDown, ChevronRight, Copy, Check, Loader2, AlertCircle, RotateCcw, PenLine, Undo2,
 } from 'lucide-react'
 import type { ContentBlock, Message, ToolCallBlock, ToolResultBlock, ToolConfirmBlock } from '../../hooks/useClaudeCode'
 import { useAppSettings } from '../../hooks/useAppSettings'
+
+const LazyMarkdownRenderer = import('./MarkdownRenderer')
 
 interface MessageListProps {
   messages: Message[]
@@ -37,70 +36,6 @@ function HighlightText({ text, query }: { text: string; query: string }) {
           : part
       )}
     </>
-  )
-}
-
-// ── 代码块（带复制按钮 + 语法高亮）──────────────────────
-function CodeBlock({ code, language }: { code: string; language?: string }) {
-  const { settings } = useAppSettings()
-  const isLight = settings.chatTheme === 'light'
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  if (language) {
-    return (
-      <div className="relative group">
-        <button
-          onClick={handleCopy}
-          className="absolute top-2 right-2 p-1.5 rounded bg-[var(--c-hover-overlay)] hover:bg-[var(--c-white-alpha-4)]
-                     text-claude-text-muted hover:text-claude-text opacity-0 group-hover:opacity-100
-                     transition-all z-10"
-          title="复制代码"
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
-        <Highlight theme={isLight ? themes.oneLight : themes.vsDark} code={code} language={language}>
-          {({ style, tokens, getLineProps, getTokenProps }) => (
-            <pre style={{ ...style, backgroundColor: 'transparent' }} className={`rounded-md p-3 overflow-x-auto text-sm border border-claude-border bg-[var(--c-code-block-bg)] ${tokens.length > 15 ? 'max-h-[360px] overflow-y-auto' : ''}`}>
-              {tokens.map((line, i) => (
-                <div key={i} {...getLineProps({ line })}>
-                  <span className={`inline-block w-8 text-right mr-3 select-none text-xs ${isLight ? 'text-black/20' : 'text-white/20'}`}>
-                    {i + 1}
-                  </span>
-                  {line.map((token, key) => (
-                    <span key={key} {...getTokenProps({ token })} />
-                  ))}
-                </div>
-              ))}
-            </pre>
-          )}
-        </Highlight>
-      </div>
-    )
-  }
-
-  // 无语言的代码块：简洁 pre + 复制按钮
-  const lines = code.split('\n')
-  return (
-    <div className="relative group">
-      <button
-        onClick={handleCopy}
-        className="absolute top-2 right-2 p-1.5 rounded bg-[var(--c-hover-overlay)] hover:bg-[var(--c-white-alpha-4)]
-                   text-claude-text-muted hover:text-claude-text opacity-0 group-hover:opacity-100
-                   transition-all z-10"
-        title="复制代码"
-      >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
-      </button>
-      <pre className={`rounded-md p-3 overflow-x-auto text-sm bg-[var(--c-code-block-bg)] font-mono text-claude-text border border-claude-border ${lines.length > 15 ? 'max-h-[360px] overflow-y-auto' : ''}`}>
-        <code>{code}</code>
-      </pre>
-    </div>
   )
 }
 
@@ -374,243 +309,13 @@ function ToolConfirmBlockUI({ block, onConfirm }: {
   )
 }
 
-// ── Markdown 渲染器 ─────────────────────────────────────
-function normalizeHtmlImageTags(content: string): string {
-  return content.replace(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi, (_m, src: string) => {
-    const safeSrc = (src || '').trim()
-    if (!safeSrc) return ''
-    return `![生成图片](${safeSrc})`
-  })
-}
-
-function extractMarkdownImageUrls(content: string): string[] {
-  const urls: string[] = []
-  const regex = /!\[[^\]]*\]\(([^)]+)\)/g
-  let match: RegExpExecArray | null
-  while ((match = regex.exec(content)) !== null) {
-    const url = (match[1] || '').trim()
-    if (url) urls.push(url)
-  }
-  return urls
-}
-
-function extractRawImageUrls(content: string): string[] {
-  const urls: string[] = []
-
-  if (!content) return urls
-
-  // 避免对超长文本做重型正则导致卡顿
-  const MAX_SCAN_CHARS = 200_000
-  const scanContent = content.length > MAX_SCAN_CHARS ? content.slice(0, MAX_SCAN_CHARS) : content
-
-  const httpImageRegex = /https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp|gif|bmp|svg)(?:\?[^\s"'<>]*)?/gi
-  let match: RegExpExecArray | null
-  while ((match = httpImageRegex.exec(scanContent)) !== null) {
-    const url = (match[0] || '').trim()
-    if (url) urls.push(url)
-  }
-
-  if (scanContent.includes('data:image/')) {
-    const dataImageRegex = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g
-    while ((match = dataImageRegex.exec(scanContent)) !== null) {
-      const url = (match[0] || '').trim()
-      if (url) urls.push(url)
-    }
-  }
-
-  return urls
-}
-
-function extractAndStripDataImageUrls(content: string): { text: string; urls: string[] } {
-  if (!content || !content.includes('data:image/')) return { text: content, urls: [] }
-
-  const urls: string[] = []
-  const regex = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\r\n]+/g
-  let text = content.replace(regex, (full) => {
-    const normalized = full.replace(/[\r\n]/g, '').trim()
-    if (normalized) urls.push(normalized)
-    return ''
-  })
-
-  // 清理残余的 markdown 图片语法，如 ![image]() 或 ![alt]([生成图片])
-  text = text.replace(/!\[[^\]]*\]\(\s*\)/g, '')
-  // 清理残余的 <img> 标签（src 被清空后留下的空标签）
-  text = text.replace(/<img\b[^>]*\bsrc=["']\s*["'][^>]*>/gi, '')
-
-  return { text, urls }
-}
-
-function MarkdownContent({
-  content,
-  onPreviewImage,
-  hiddenImageUrls,
-}: {
-  content: string
-  onPreviewImage?: (url: string) => void
-  hiddenImageUrls?: Set<string>
-}) {
-  const { normalizedContent, supplementalImageUrls, isLarge, hasStreamingBase64 } = useMemo(() => {
-    // 快速 O(1) 检测：文本含 data:image/ 说明有 base64 图片数据
-    // 此时完全跳过正则和 ReactMarkdown，仅提取 base64 之前的纯文本做轻量展示
-    const hasBase64 = content.includes('data:image/')
-
-    if (hasBase64) {
-      // 找到 data:image/ 的位置，只取前面的纯文本部分（无需正则）
-      const idx = content.indexOf('data:image/')
-      // 往前找 markdown 图片语法起点 ![
-      let textEnd = idx
-      const before = content.slice(0, idx)
-      const mdStart = before.lastIndexOf('![')
-      if (mdStart >= 0 && mdStart > idx - 200) {
-        textEnd = mdStart
-      }
-      const cleanText = content.slice(0, textEnd).trim()
-      return {
-        normalizedContent: cleanText,
-        supplementalImageUrls: [] as string[],
-        isLarge: true,
-        hasStreamingBase64: true,
-      }
-    }
-
-    const stripped = extractAndStripDataImageUrls(content)
-    const normalized = normalizeHtmlImageTags(stripped.text)
-    const markdownImageUrls = new Set(extractMarkdownImageUrls(normalized))
-    const supplemental = [
-      ...stripped.urls,
-      ...extractRawImageUrls(stripped.text),
-    ].filter((u) => !markdownImageUrls.has(u))
-
-    // 避免超长内容触发 Markdown 解析卡顿
-    const MAX_RENDER_CHARS = 80_000
-    const tooLarge = normalized.length > MAX_RENDER_CHARS
-    const shortened = tooLarge
-      ? `${normalized.slice(0, MAX_RENDER_CHARS)}\n\n...[内容过长，已截断显示]`
-      : normalized
-
-    return {
-      normalizedContent: shortened,
-      supplementalImageUrls: Array.from(new Set(supplemental)),
-      isLarge: tooLarge,
-      hasStreamingBase64: false,
-    }
-  }, [content])
-
-  const effectiveHiddenUrls = hiddenImageUrls || new Set<string>()
-  const renderedUrls = new Set<string>()
-
-  return (
-    <div className="prose prose-invert prose-sm max-w-none">
-      {!isLarge ? (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            pre({ children }) {
-              // react-markdown v9 会用 <pre> 包裹代码块
-              // CodeBlock 已经自带 <pre>，去掉外层避免嵌套
-              return <div className="not-prose my-3">{children}</div>
-            },
-            code({ className, children, node, ...props }) {
-              const match = /language-(\w+)/.exec(className || '')
-              const code = String(children).replace(/\n$/, '')
-
-              // 判断行内 vs 块级：有语言标识 → 块级；源码跨多行 → 块级
-              const isInline = !match
-                && node?.position
-                && node.position.start.line === node.position.end.line
-
-              if (isInline) {
-                return (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                )
-              }
-
-              // 块级代码（有或无语言）
-              return <CodeBlock code={code} language={match?.[1]} />
-            },
-            a({ href, children, ...props }) {
-              const url = href || ''
-              const handleClick = (e: React.MouseEvent) => {
-                e.preventDefault()
-                if (/^https?:\/\//i.test(url)) {
-                  window.electronAPI?.openExternal({ target: url })
-                }
-              }
-              return (
-                <a
-                  href={url}
-                  onClick={handleClick}
-                  className="text-claude-primary hover:text-claude-primary-light underline cursor-pointer"
-                  title={url}
-                  {...props}
-                >
-                  {children}
-                </a>
-              )
-            },
-            img({ src, alt }) {
-              const url = src || ''
-              if (!url) return null
-              if (effectiveHiddenUrls.has(url)) return null
-              if (renderedUrls.has(url)) return null
-              renderedUrls.add(url)
-              return (
-                <img
-                  src={url}
-                  alt={alt || '图片'}
-                  className="max-h-96 max-w-full rounded border border-claude-border cursor-pointer hover:opacity-90 transition-opacity"
-                  onClick={() => onPreviewImage?.(url)}
-                  title="点击查看大图"
-                />
-              )
-            },
-          }}
-        >
-          {normalizedContent}
-        </ReactMarkdown>
-      ) : hasStreamingBase64 ? (
-        <div className="text-sm text-claude-text-muted italic py-2">
-          {normalizedContent && (
-            <pre className="whitespace-pre-wrap break-words text-sm text-claude-text bg-claude-bg/40 rounded p-3 not-prose mb-2">
-              {normalizedContent.slice(0, 2000)}
-            </pre>
-          )}
-          <span className="inline-flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded-full border-2 border-claude-text-muted border-t-transparent animate-spin" />
-            图片数据接收中...
-          </span>
-        </div>
-      ) : (
-        <pre className="whitespace-pre-wrap break-words text-sm text-claude-text bg-claude-bg/40 rounded p-3 not-prose">
-          {normalizedContent}
-        </pre>
-      )}
-      {supplementalImageUrls.length > 0 && (
-        <div className="mt-2 space-y-2">
-          {supplementalImageUrls.filter((u: string) => !effectiveHiddenUrls.has(u)).map((url: string, idx: number) => (
-            <img
-              key={`${url.slice(0, 64)}-${idx}`}
-              src={url}
-              alt={`生成图片 ${idx + 1}`}
-              className="max-h-96 max-w-full rounded border border-claude-border cursor-pointer hover:opacity-90 transition-opacity"
-              onClick={() => onPreviewImage?.(url)}
-              title="点击查看大图"
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── 渲染内容块列表 ──────────────────────────────────────
 function renderBlocks(
   blocks: ContentBlock[],
   isLive: boolean,
   confirmTool?: (confirmId: string, approved: boolean, trustSession?: boolean) => void,
   onPreviewImage?: (url: string) => void,
+  MarkdownRendererComponent?: ((props: { content: string; onPreviewImage?: (url: string) => void; hiddenImageUrls?: Set<string> }) => JSX.Element) | null,
 ) {
   const elements: JSX.Element[] = []
   // 预收集所有 image 块的 URL，传给 MarkdownContent 避免重复渲染
@@ -625,12 +330,18 @@ function renderBlocks(
 
     if (block.type === 'text') {
       elements.push(
-        <MarkdownContent
-          key={`text-${i}`}
-          content={block.content}
-          onPreviewImage={onPreviewImage}
-          hiddenImageUrls={allImageBlockUrls}
-        />
+        MarkdownRendererComponent ? (
+          <MarkdownRendererComponent
+            key={`text-${i}`}
+            content={block.content}
+            onPreviewImage={onPreviewImage}
+            hiddenImageUrls={allImageBlockUrls}
+          />
+        ) : (
+          <pre key={`text-${i}`} className="whitespace-pre-wrap break-words text-sm text-claude-text bg-claude-bg/40 rounded p-3 not-prose">
+            {block.content}
+          </pre>
+        )
       )
     } else if (block.type === 'image') {
       if (renderedImageUrls.has(block.url)) continue
@@ -683,7 +394,7 @@ function renderBlocks(
 }
 
 // ── 单条消息组件（提取以支持虚拟化测量）─────────────────
-function MessageItem({ message, isLoading, confirmTool, editMessage, regenerateMessage, rollbackToMessage, isRollbacking, searchQuery, setPreviewImage }: {
+function MessageItem({ message, isLoading, confirmTool, editMessage, regenerateMessage, rollbackToMessage, isRollbacking, searchQuery, setPreviewImage, MarkdownRendererComponent }: {
   message: Message
   isLoading: boolean
   confirmTool?: (confirmId: string, approved: boolean, trustSession?: boolean) => void
@@ -693,6 +404,7 @@ function MessageItem({ message, isLoading, confirmTool, editMessage, regenerateM
   isRollbacking?: boolean
   searchQuery?: string
   setPreviewImage: (url: string | null) => void
+  MarkdownRendererComponent?: ((props: { content: string; onPreviewImage?: (url: string) => void; hiddenImageUrls?: Set<string> }) => JSX.Element) | null
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -759,8 +471,10 @@ function MessageItem({ message, isLoading, confirmTool, editMessage, regenerateM
             ) : !isUser ? (
               <div className="mt-1">
                 {message.blocks.length > 0
-                  ? renderBlocks(message.blocks, false, confirmTool, setPreviewImage)
-                  : <MarkdownContent content={message.content} onPreviewImage={setPreviewImage} />}
+                  ? renderBlocks(message.blocks, false, confirmTool, setPreviewImage, MarkdownRendererComponent)
+                  : MarkdownRendererComponent
+                    ? <MarkdownRendererComponent content={message.content} onPreviewImage={setPreviewImage} />
+                    : <div className="whitespace-pre-wrap break-words">{message.content}</div>}
               </div>
             ) : (
               <div className="mt-1">
@@ -826,6 +540,7 @@ const VIRTUAL_THRESHOLD = 30
 // ── 主组件 ──────────────────────────────────────────────
 export default function MessageList({ messages, isLoading, streamBlocks, confirmTool, editMessage, regenerateMessage, rollbackToMessage, isRollbacking, searchQuery, sessionId, isActive = true }: MessageListProps) {
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [MarkdownRendererComponent, setMarkdownRendererComponent] = useState<null | ((props: { content: string; onPreviewImage?: (url: string) => void; hiddenImageUrls?: Set<string> }) => JSX.Element)>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const { settings } = useAppSettings()
   const fontVars = {
@@ -833,6 +548,22 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
     '--fs-code': `${settings.fontSizeCode}px`,
     '--fs-ui': `${settings.fontSizeUI}px`,
   } as React.CSSProperties
+
+  useEffect(() => {
+    const needsMarkdownRenderer = messages.some((message) => !message.role || message.role === 'assistant') || streamBlocks.length > 0
+    if (!needsMarkdownRenderer || MarkdownRendererComponent) return
+
+    let cancelled = false
+    LazyMarkdownRenderer.then((mod) => {
+      if (!cancelled) {
+        setMarkdownRendererComponent(() => mod.default)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [messages, streamBlocks.length, MarkdownRendererComponent])
 
   // 流式回复阶段禁用虚拟化，避免长内容在快速发送下一条消息时出现绝对定位重叠
   const useVirtual = messages.length >= VIRTUAL_THRESHOLD && !isLoading
@@ -1016,7 +747,7 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
           <div className="mt-1">
             {streamBlocks.length > 0 ? (
               <>
-                {renderBlocks(streamBlocks, true, confirmTool, setPreviewImage)}
+                {renderBlocks(streamBlocks, true, confirmTool, setPreviewImage, MarkdownRendererComponent)}
                 <div className="mt-2 flex items-center gap-2">
                   <Loader2 size={12} className="text-claude-primary animate-spin" />
                   <span className="text-xs text-claude-text-muted">思考中...</span>
@@ -1059,6 +790,7 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
                   isRollbacking={isRollbacking}
                   searchQuery={searchQuery}
                   setPreviewImage={setPreviewImage}
+                MarkdownRendererComponent={MarkdownRendererComponent}
                 />
               </div>
             )
@@ -1078,6 +810,7 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
                 rollbackToMessage={rollbackToMessage}
                 searchQuery={searchQuery}
                 setPreviewImage={setPreviewImage}
+                MarkdownRendererComponent={MarkdownRendererComponent}
               />
             </div>
           ))}

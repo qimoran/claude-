@@ -1,27 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Folder, FolderOpen, FileText, FileCode, ChevronRight, ChevronDown,
   RefreshCw, Copy, X, Search, AlertCircle, Eye, EyeOff, Loader2, Code2, BookOpen, Globe,
   Save, Pencil,
 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Highlight, themes as prismThemes } from 'prism-react-renderer'
-import CodeMirror from '@uiw/react-codemirror'
-import { vscodeDark } from '@uiw/codemirror-theme-vscode'
-import { javascript } from '@codemirror/lang-javascript'
-import { python } from '@codemirror/lang-python'
-import { html } from '@codemirror/lang-html'
-import { css } from '@codemirror/lang-css'
-import { json } from '@codemirror/lang-json'
-import { markdown } from '@codemirror/lang-markdown'
-import { xml } from '@codemirror/lang-xml'
-import { sql } from '@codemirror/lang-sql'
-import { java } from '@codemirror/lang-java'
-import { rust } from '@codemirror/lang-rust'
-import { cpp } from '@codemirror/lang-cpp'
-import { yaml } from '@codemirror/lang-yaml'
-import { EditorView } from '@codemirror/view'
 import { useAppSettings } from '../../hooks/useAppSettings'
 import { parseDataInput } from '../../utils/dataAnalysis'
 
@@ -61,6 +43,9 @@ type XlsxLike = {
 }
 
 const XLSX_SCRIPT_ID = 'file-browser-sheetjs'
+
+const LazyFileMarkdownPreview = import('./FileMarkdownPreview')
+const LazyFileCodeViewer = import('./FileCodeViewer')
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg'])
 const EXCEL_EXTENSIONS = new Set(['.xls', '.xlsx'])
@@ -131,29 +116,6 @@ function getLangFromExt(name: string, kind: SelectedFileState['kind'] = 'text'):
     '.svelte': 'html', '.mdx': 'markdown',
   }
   return map[ext] || 'text'
-}
-
-// CodeMirror 语言扩展映射
-function getCmLangExtension(langId: string) {
-  switch (langId) {
-    case 'typescript': return javascript({ typescript: true })
-    case 'tsx': return javascript({ jsx: true, typescript: true })
-    case 'javascript': return javascript()
-    case 'jsx': return javascript({ jsx: true })
-    case 'python': return python()
-    case 'html': case 'vue': case 'svelte': return html()
-    case 'css': return css()
-    case 'json': return json()
-    case 'markdown': return markdown()
-    case 'xml': case 'toml': return xml()
-    case 'sql': return sql()
-    case 'java': return java()
-    case 'rust': return rust()
-    case 'c': case 'cpp': return cpp()
-    case 'yaml': return yaml()
-    case 'bash': case 'batch': return [] // 无专用扩展，用纯文本
-    default: return []
-  }
 }
 
 function normalizeCellValue(value: unknown): string {
@@ -364,6 +326,9 @@ export default function FileBrowserPanel() {
   const [fileLoading, setFileLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [previewMode, setPreviewMode] = useState<'source' | 'rendered'>('rendered')
+  const [MarkdownPreviewComponent, setMarkdownPreviewComponent] = useState<null | ((props: { content: string; isLight: boolean }) => JSX.Element)>(null)
+  const [CodeViewerComponent, setCodeViewerComponent] = useState<null | ((props: { fileName: string; fileKind: SelectedFileState['kind']; value: string; editable: boolean; isLight: boolean; onChange?: (value: string) => void; onSave?: () => void }) => JSX.Element)>(null)
+  const [previewDependencyLoading, setPreviewDependencyLoading] = useState(false)
 
   // 编辑模式
   const [editing, setEditing] = useState(false)
@@ -556,99 +521,43 @@ export default function FileBrowserPanel() {
 
   const isLight = settings.chatTheme === 'light'
 
-  // CodeMirror 只读样式
-  const cmReadonlyTheme = useMemo(() => EditorView.theme({
-    '&': { backgroundColor: 'transparent', height: '100%' },
-    '.cm-gutters': { backgroundColor: isLight ? '#f5f1eb' : '#1e1e1e', borderRight: isLight ? '1px solid #d5d0c8' : '1px solid #3e3e42' },
-    '.cm-activeLineGutter': { backgroundColor: isLight ? '#ebe7e0' : '#2a2d2e' },
-    '.cm-activeLine': { backgroundColor: isLight ? '#ebe7e040' : '#2a2d2e40' },
-    '.cm-cursor': { borderLeftColor: isLight ? '#333' : '#d4d4d4' },
-    '.cm-selectionBackground': { backgroundColor: isLight ? '#b4d7ff !important' : '#264f78 !important' },
-  }), [isLight])
+  useEffect(() => {
+    if (!selectedFile) return
 
-  // CodeMirror 语言扩展（缓存避免重建）
-  const cmExtensions = useMemo(() => {
-    if (!selectedFile) return []
-    const langId = getLangFromExt(selectedFile.name, selectedFile.kind)
-    const langExt = getCmLangExtension(langId)
-    return [
-      cmReadonlyTheme,
-      ...(Array.isArray(langExt) ? langExt : [langExt]),
-    ]
-  }, [selectedFile, cmReadonlyTheme])
+    const needsMarkdownPreview = isMarkdown && previewMode === 'rendered' && !editing && !MarkdownPreviewComponent
+    const needsCodeViewer = (!isImage && !showTablePreview && !(isMarkdown && previewMode === 'rendered' && !editing) && !CodeViewerComponent)
 
-  // Markdown 代码块组件（带语法高亮）
-  const MdCodeBlock = ({ code, language }: { code: string; language?: string }) => {
-    const [codeCopied, setCodeCopied] = useState(false)
-    const onCopy = () => {
-      navigator.clipboard.writeText(code)
-      setCodeCopied(true)
-      setTimeout(() => setCodeCopied(false), 2000)
+    if (!needsMarkdownPreview && !needsCodeViewer) return
+
+    let cancelled = false
+
+    const loadDependencies = async () => {
+      setPreviewDependencyLoading(true)
+      try {
+        if (needsMarkdownPreview) {
+          const mod = await LazyFileMarkdownPreview
+          if (!cancelled) {
+            setMarkdownPreviewComponent(() => mod.default)
+          }
+        }
+        if (needsCodeViewer) {
+          const mod = await LazyFileCodeViewer
+          if (!cancelled) {
+            setCodeViewerComponent(() => mod.default)
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setPreviewDependencyLoading(false)
+        }
+      }
     }
-    if (language) {
-      return (
-        <div className="relative group my-3">
-          <button onClick={onCopy}
-            className="absolute top-2 right-2 p-1 rounded bg-white/10 hover:bg-white/20 text-claude-text-muted hover:text-claude-text opacity-0 group-hover:opacity-100 transition-all z-10"
-            title="复制代码">
-            {codeCopied ? <span className="text-[10px] text-green-400">OK</span> : <Copy size={12} />}
-          </button>
-          <Highlight theme={isLight ? prismThemes.oneLight : prismThemes.vsDark} code={code} language={language}>
-            {({ style, tokens, getLineProps, getTokenProps }) => (
-              <pre style={{ ...style, backgroundColor: 'transparent' }} className="rounded-md p-3 overflow-x-auto text-xs border border-claude-border bg-claude-bg my-2">
-                {tokens.map((line, i) => (
-                  <div key={i} {...getLineProps({ line })}>
-                    <span className={`inline-block w-7 text-right mr-2 select-none text-[10px] ${isLight ? 'text-black/20' : 'text-white/20'}`}>{i + 1}</span>
-                    {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-                  </div>
-                ))}
-              </pre>
-            )}
-          </Highlight>
-        </div>
-      )
-    }
-    return <code className="bg-white/10 px-1.5 py-0.5 rounded text-xs font-mono">{code}</code>
-  }
 
-  // Markdown 渲染视图
-  const renderMarkdown = (content: string) => (
-    <div className={`prose prose-sm max-w-none px-5 py-4 ${isLight ? '' : 'prose-invert'}
-      prose-headings:text-claude-text prose-headings:border-b prose-headings:border-claude-border/30 prose-headings:pb-2 prose-headings:mb-3
-      prose-h1:text-xl prose-h1:font-bold
-      prose-h2:text-lg prose-h2:font-semibold
-      prose-h3:text-base prose-h3:font-semibold
-      prose-p:text-claude-text prose-p:leading-relaxed prose-p:text-sm
-      prose-a:text-claude-primary prose-a:no-underline hover:prose-a:underline
-      prose-strong:text-claude-text prose-strong:font-semibold
-      prose-em:text-claude-text/80
-      prose-code:text-claude-primary prose-code:bg-claude-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-      prose-pre:bg-transparent prose-pre:p-0
-      prose-ul:text-claude-text prose-ul:text-sm
-      prose-ol:text-claude-text prose-ol:text-sm
-      prose-li:text-claude-text prose-li:text-sm prose-li:marker:text-claude-text-muted
-      prose-blockquote:border-claude-primary/40 prose-blockquote:text-claude-text-muted prose-blockquote:text-sm
-      prose-hr:border-claude-border/40
-      prose-table:text-sm
-      prose-th:text-claude-text prose-th:border-claude-border prose-th:px-3 prose-th:py-1.5 prose-th:bg-claude-surface/50
-      prose-td:text-claude-text prose-td:border-claude-border prose-td:px-3 prose-td:py-1.5
-      prose-img:rounded-lg prose-img:max-w-full
-    `}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code({ className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '')
-            const codeStr = String(children).replace(/\n$/, '')
-            if (match) return <MdCodeBlock code={codeStr} language={match[1]} />
-            return <code className={className} {...props}>{children}</code>
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  )
+    loadDependencies()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedFile, isMarkdown, isImage, showTablePreview, previewMode, editing, MarkdownPreviewComponent, CodeViewerComponent])
 
   return (
     <div className="h-full flex flex-col bg-claude-bg">
@@ -894,7 +803,13 @@ export default function FileBrowserPanel() {
                   </table>
                 </div>
               ) : isMarkdown && previewMode === 'rendered' && !editing ? (
-                renderMarkdown(selectedFile.content)
+                MarkdownPreviewComponent ? (
+                  <MarkdownPreviewComponent content={selectedFile.content} isLight={isLight} />
+                ) : (
+                  <div className="flex items-center gap-2 p-4 text-xs text-claude-text-muted">
+                    <Loader2 size={14} className="animate-spin" /> 加载 Markdown 预览中...
+                  </div>
+                )
               ) : isHtml && previewMode === 'rendered' && !editing ? (
                 <iframe
                   src={`file:///${selectedFile.path.replace(/\\/g, '/')}`}
@@ -902,32 +817,20 @@ export default function FileBrowserPanel() {
                   sandbox="allow-same-origin"
                   title={selectedFile.name}
                 />
-              ) : (
-                <CodeMirror
+              ) : CodeViewerComponent ? (
+                <CodeViewerComponent
+                  fileName={selectedFile.name}
+                  fileKind={selectedFile.kind}
                   value={editing ? editContent : selectedFile.content}
-                  extensions={cmExtensions}
-                  theme={isLight ? 'light' : vscodeDark}
                   editable={editing}
-                  readOnly={!editing}
+                  isLight={isLight}
                   onChange={editing ? (val) => setEditContent(val) : undefined}
-                  onKeyDown={(e) => {
-                    if (editing && e.ctrlKey && e.key === 's') {
-                      e.preventDefault()
-                      handleSave()
-                    }
-                  }}
-                  basicSetup={{
-                    lineNumbers: true,
-                    highlightActiveLineGutter: true,
-                    highlightActiveLine: editing,
-                    foldGutter: true,
-                    bracketMatching: true,
-                    closeBrackets: editing,
-                    autocompletion: false,
-                    indentOnInput: editing,
-                  }}
-                  style={{ height: '100%', fontSize: '13px' }}
+                  onSave={handleSave}
                 />
+              ) : (
+                <div className="flex items-center gap-2 p-4 text-xs text-claude-text-muted">
+                  <Loader2 size={14} className="animate-spin" /> {previewDependencyLoading ? '加载代码预览中...' : '准备预览中...'}
+                </div>
               )}
             </div>
 

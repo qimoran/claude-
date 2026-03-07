@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, LineChart, AreaChart, PieChart, RefreshCw } from 'lucide-react'
-import * as echarts from 'echarts'
 import {
   AggregateSeriesResult,
   AggregateSeriesOptions,
@@ -25,6 +24,7 @@ import {
   detectNumericColumns,
   parseDataInput,
 } from '../../utils/dataAnalysis'
+import { loadEcharts, type AnalyticsChartInstance, type AnalyticsChartOption } from './echartsLoader'
 
 type ChartType = 'bar' | 'line' | 'area' | 'combo' | 'pie' | 'stackedBar' | 'groupedBar' | 'dualAxis' | 'scatter' | 'bubble' | 'heatmap' | 'boxplot'
 type AggregateMode = 'sum' | 'avg' | 'max' | 'min'
@@ -240,12 +240,13 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const chartContainerRef = useRef<HTMLDivElement | null>(null)
   const linkedChartContainerRef = useRef<HTMLDivElement | null>(null)
-  const chartRef = useRef<echarts.ECharts | null>(null)
-  const linkedChartRef = useRef<echarts.ECharts | null>(null)
-  const optionRef = useRef<echarts.EChartsOption>({})
+  const chartRef = useRef<AnalyticsChartInstance | null>(null)
+  const linkedChartRef = useRef<AnalyticsChartInstance | null>(null)
+  const optionRef = useRef<AnalyticsChartOption>({})
   const workerRef = useRef<Worker | null>(null)
   const requestIdRef = useRef(0)
   const chartClickHandlerRef = useRef<(params: unknown) => void>()
+  const [echartsModule, setEchartsModule] = useState<Awaited<ReturnType<typeof loadEcharts>> | null>(null)
 
   const parsed = useMemo(() => {
     try {
@@ -256,6 +257,23 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
       return { dataset: null, error: message }
     }
   }, [rawInput])
+
+  useEffect(() => {
+    let cancelled = false
+    loadEcharts().then((mod) => {
+      if (!cancelled) {
+        setEchartsModule(mod)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setChartError('图表引擎加载失败')
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const sourceRows = useMemo(() => parsed.dataset?.rows || [], [parsed.dataset])
   const sourceColumns = useMemo(() => parsed.dataset?.columns || [], [parsed.dataset])
@@ -514,10 +532,13 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
           return
         }
 
+        if (!echartsModule) {
+          return
+        }
         chartRef.current?.dispose()
         linkedChartRef.current?.dispose()
-        chartRef.current = echarts.init(chartContainerRef.current)
-        linkedChartRef.current = echarts.init(linkedChartContainerRef.current)
+        chartRef.current = echartsModule.init(chartContainerRef.current)
+        linkedChartRef.current = echartsModule.init(linkedChartContainerRef.current)
         setChartReady(true)
         setChartError(null)
       } catch (error) {
@@ -538,7 +559,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
       chartRef.current = null
       linkedChartRef.current = null
     }
-  }, [])
+  }, [echartsModule])
 
   useEffect(() => {
     if (!chartReady || !chartRef.current) {
@@ -557,7 +578,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
     const accentColor = themePreset === 'default' ? '#22d3ee' : (themePreset === 'emerald' ? '#84cc16' : '#f97316')
     const movingAvg = calculateMovingAverage(series.primaryValues, 3)
 
-    const baseOption: echarts.EChartsOption = {
+    const baseOption: AnalyticsChartOption = {
       color: [primaryColor, secondaryColor],
       grid: { left: 50, right: 20, top: 40, bottom: 42 },
       textStyle: {
@@ -816,7 +837,7 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
           },
         ]
         : baseOption.yAxis,
-      series: seriesList as echarts.EChartsOption['series'],
+      series: seriesList as AnalyticsChartOption['series'],
     }
 
     chart.setOption(optionRef.current)
@@ -989,7 +1010,10 @@ export default function DataAnalysisPanel({ isActive }: DataAnalysisPanelProps) 
     temp.style.position = 'fixed'
     temp.style.left = '-9999px'
     document.body.appendChild(temp)
-    const svgChart = echarts.init(temp, undefined, { renderer: 'svg' })
+    if (!echartsModule) {
+      return
+    }
+    const svgChart = echartsModule.init(temp, undefined, { renderer: 'svg' })
     svgChart.setOption(optionRef.current, true)
     const url = svgChart.getDataURL({ type: 'svg' })
     svgChart.dispose()
