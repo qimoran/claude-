@@ -505,7 +505,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
       setStreamBlocksMap((prev) => {
         const next = { ...prev }
         for (const [sid, items] of grouped) {
-          let blocks = [...(next[sid] || [])]
+          const blocks = next[sid] ? [...next[sid]] : []
           for (const item of items) {
             if (item.parsed && item.evt) {
               const evt = item.evt
@@ -514,61 +514,52 @@ export function useClaudeCode(): UseClaudeCodeReturn {
 
                 const last = blocks[blocks.length - 1]
                 if (text && last && last.type === 'text') {
-                  blocks = [
-                    ...blocks.slice(0, -1),
-                    { ...last, content: last.content + text },
-                  ]
+                  blocks[blocks.length - 1] = { ...last, content: last.content + text }
                 } else if (text) {
-                  blocks = [...blocks, { type: 'text', content: text }]
+                  blocks.push({ type: 'text', content: text })
                 }
 
                 if (urls.length > 0) {
-                  blocks = [
-                    ...blocks,
-                    ...urls.map((url) => ({ type: 'image' as const, url })),
-                  ]
+                  blocks.push(...urls.map((url) => ({ type: 'image' as const, url })))
                 }
               } else if (evt.type === 'tool_call') {
-                blocks = [...blocks, {
+                blocks.push({
                   type: 'tool_call',
                   toolId: evt.toolId as string,
                   toolName: evt.toolName as string,
                   input: evt.input as Record<string, unknown>,
-                }]
+                })
               } else if (evt.type === 'tool_result') {
-                blocks = [...blocks, {
+                blocks.push({
                   type: 'tool_result',
                   toolId: evt.toolId as string,
                   toolName: evt.toolName as string,
                   output: evt.output as string,
                   isError: evt.isError as boolean,
-                }]
+                })
               } else if (evt.type === 'round') {
-                blocks = [...blocks, { type: 'round', round: evt.round as number }]
+                blocks.push({ type: 'round', round: evt.round as number })
               } else if (evt.type === 'tool_confirm') {
-                blocks = [...blocks, {
+                blocks.push({
                   type: 'tool_confirm',
                   confirmId: evt.confirmId as string,
                   toolName: evt.toolName as string,
                   input: evt.input as Record<string, unknown>,
                   status: evt.autoApproved ? 'approved' as const : 'pending' as const,
-                }]
+                })
               } else if (evt.type === 'image' && typeof evt.url === 'string') {
-                blocks = [...blocks, {
+                blocks.push({
                   type: 'image',
                   url: evt.url,
                   alt: typeof evt.alt === 'string' ? evt.alt : undefined,
-                }]
+                })
               }
             } else {
               const last = blocks[blocks.length - 1]
               if (last && last.type === 'text') {
-                blocks = [
-                  ...blocks.slice(0, -1),
-                  { ...last, content: last.content + item.data },
-                ]
+                blocks[blocks.length - 1] = { ...last, content: last.content + item.data }
               } else {
-                blocks = [...blocks, { type: 'text', content: item.data }]
+                blocks.push({ type: 'text', content: item.data })
               }
             }
           }
@@ -811,7 +802,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
 
   const sendMessage = useCallback(async (content: string, images?: ImageAttachment[]) => {
     if ((!content.trim() && (!images || images.length === 0)) || !activeSession) return
-    if (rollbackingSessions.has(activeSession.id)) return
+    if (rollbackingSessions.has(activeSession.id) || loadingSessions.has(activeSession.id)) return
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -967,6 +958,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     settings.maxTokens,
     updateSession,
     rollbackingSessions,
+    loadingSessions,
     syncBackendHistory,
     finalizeRequestTiming,
     markModelTimingStarted,

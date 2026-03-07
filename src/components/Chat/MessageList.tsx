@@ -915,7 +915,7 @@ export default function MessageList({ messages, isLoading, streamBlocks, confirm
         scrollToBottom()
       })
     }
-  }, [messages.length, streamBlocks, scrollToBottom, useVirtual, virtualizer])
+  }, [messages.length, streamBlocks.length, scrollToBottom, useVirtual, virtualizer])
 
   // 虚拟化开关切换时，强制在浏览器绘制前同步测量并修正滚动，避免位置抖动/重叠
   const prevUseVirtualRef = useRef(useVirtual)
