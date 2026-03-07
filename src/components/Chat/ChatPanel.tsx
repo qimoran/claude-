@@ -360,7 +360,7 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
         <div className="ml-auto flex items-center gap-0.5">
           {/* Token 用量 */}
           {hasUsageStats && (
-            <span className="text-[10px] text-claude-text-dim mr-2 hidden sm:inline" title={`对话: ${sessionUsage.messageCount} | 调用: ${sessionUsage.requestCount} | 输入: ${formatTokens(sessionUsage.totalInputTokens)} | 输出: ${formatTokens(sessionUsage.totalOutputTokens)} | 费用: ${formatCost(sessionUsage.totalCost)} | 耗时: ${formatDuration(sessionUsage.totalDurationMs)}${sessionUsage.lastDurationMs > 0 ? ` (最近 ${formatDuration(sessionUsage.lastDurationMs)})` : ''}`}>
+            <span className="text-[10px] text-claude-text-dim mr-2 hidden sm:inline" title={`对话: ${sessionUsage.messageCount} | 调用: ${sessionUsage.requestCount} | 输入: ${formatTokens(sessionUsage.totalInputTokens)} | 输出: ${formatTokens(sessionUsage.totalOutputTokens)} | 费用: ${formatCost(sessionUsage.totalCost)} | 耗时: ${formatDuration(sessionUsage.totalDurationMs)}${sessionUsage.lastDurationMs > 0 ? ` (最近 ${formatDuration(sessionUsage.lastDurationMs)})` : ''} | 模型耗时: ${formatDuration(sessionUsage.modelTotalDurationMs)}${sessionUsage.lastModelDurationMs > 0 ? ` (最近 ${formatDuration(sessionUsage.lastModelDurationMs)})` : ''}`}>
               {formatTokens(sessionUsage.totalInputTokens + sessionUsage.totalOutputTokens)} | {formatCost(sessionUsage.totalCost)} | {formatDuration(sessionUsage.totalDurationMs)}
             </span>
           )}
@@ -537,6 +537,8 @@ export default function ChatPanel({ isActive = true }: ChatPanelProps) {
           <span>费用: {formatCost(sessionUsage.totalCost)}</span>
           <span>耗时: {formatDuration(sessionUsage.totalDurationMs)}</span>
           <span>最近: {formatDuration(sessionUsage.lastDurationMs)}</span>
+          <span>模型耗时: {formatDuration(sessionUsage.modelTotalDurationMs)}</span>
+          <span>模型最近: {formatDuration(sessionUsage.lastModelDurationMs)}</span>
         </div>
       )}
 

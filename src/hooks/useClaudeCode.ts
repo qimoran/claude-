@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useAppSettings } from './useAppSettings'
-import { calculateCost } from '../utils/pricing'
+import { calculateUsageCost, normalizeModelIdForPricing, type UsageTokens } from '../utils/pricing'
 import { createSession, loadSessionsFromStorage, saveSessionsToStorage, idbSaveSessions, idbLoadSessions, migrateFromLocalStorage } from '../utils/sessionStorage'
 import type { ChatSession } from '../utils/sessionStorage'
 
@@ -50,15 +50,22 @@ export type ContentBlock = TextBlock | ToolCallBlock | ToolResultBlock | RoundBl
 export interface SessionUsage {
   totalInputTokens: number
   totalOutputTokens: number
+  totalCacheCreationInputTokens: number
+  totalCacheReadInputTokens: number
+  totalReasoningTokens: number
   totalCost: number      // 美元
-  requestCount: number   // API 调用轮次（含工具回传）
+  unknownPriceRequestCount: number
+  requestCount: number   // API 请求次数
   messageCount: number   // 用户主动发送消息的次数
   totalDurationMs: number // 会话累计请求耗时
-  lastDurationMs: number  // 最近一次请求耗时
+  modelTotalDurationMs: number // 会话累计模型耗时（首包到结束）
+  lastDurationMs: number  // 最近一次请求总耗时
+  lastModelDurationMs: number // 最近一次模型耗时
 }
 
 interface RequestTiming {
   startedAt: number
+  modelStartedAt?: number
   finalized: boolean
 }
 
@@ -136,31 +143,49 @@ export interface RequestRouting {
 const DEFAULT_USAGE: SessionUsage = {
   totalInputTokens: 0,
   totalOutputTokens: 0,
+  totalCacheCreationInputTokens: 0,
+  totalCacheReadInputTokens: 0,
+  totalReasoningTokens: 0,
   totalCost: 0,
+  unknownPriceRequestCount: 0,
   requestCount: 0,
   messageCount: 0,
   totalDurationMs: 0,
+  modelTotalDurationMs: 0,
   lastDurationMs: 0,
+  lastModelDurationMs: 0,
 }
 
 const normalizeUsage = (usage?: SessionUsage): SessionUsage => ({
   totalInputTokens: usage?.totalInputTokens ?? 0,
   totalOutputTokens: usage?.totalOutputTokens ?? 0,
+  totalCacheCreationInputTokens: usage?.totalCacheCreationInputTokens ?? 0,
+  totalCacheReadInputTokens: usage?.totalCacheReadInputTokens ?? 0,
+  totalReasoningTokens: usage?.totalReasoningTokens ?? 0,
   totalCost: usage?.totalCost ?? 0,
+  unknownPriceRequestCount: usage?.unknownPriceRequestCount ?? 0,
   requestCount: usage?.requestCount ?? 0,
   messageCount: usage?.messageCount ?? 0,
   totalDurationMs: usage?.totalDurationMs ?? 0,
+  modelTotalDurationMs: usage?.modelTotalDurationMs ?? 0,
   lastDurationMs: usage?.lastDurationMs ?? 0,
+  lastModelDurationMs: usage?.lastModelDurationMs ?? 0,
 })
 
 const hasUsageData = (usage: SessionUsage): boolean => (
   usage.totalInputTokens > 0
   || usage.totalOutputTokens > 0
+  || usage.totalCacheCreationInputTokens > 0
+  || usage.totalCacheReadInputTokens > 0
+  || usage.totalReasoningTokens > 0
   || usage.totalCost > 0
+  || usage.unknownPriceRequestCount > 0
   || usage.requestCount > 0
   || usage.messageCount > 0
   || usage.totalDurationMs > 0
+  || usage.modelTotalDurationMs > 0
   || usage.lastDurationMs > 0
+  || usage.lastModelDurationMs > 0
 )
 
 export function useClaudeCode(): UseClaudeCodeReturn {
@@ -356,19 +381,33 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     setSessions((prev) => prev.map((session) => (session.id === sessionId ? updater(session) : session)))
   }, [])
 
+  const markModelTimingStarted = useCallback((sessionId: string) => {
+    const timing = requestTimingRef.current[sessionId]
+    if (!timing || timing.finalized || timing.modelStartedAt) return
+    timing.modelStartedAt = Date.now()
+  }, [])
+
   const finalizeRequestTiming = useCallback((sessionId: string, _reason: 'end' | 'error' | 'stop' | 'catch') => {
     const timing = requestTimingRef.current[sessionId]
     if (!timing || timing.finalized) return
 
-    const elapsedMs = Math.max(0, Date.now() - timing.startedAt)
+    const endedAt = Date.now()
+    const elapsedMs = Math.max(0, endedAt - timing.startedAt)
+    const modelElapsedMs = timing.modelStartedAt
+      ? Math.max(0, endedAt - timing.modelStartedAt)
+      : 0
+
     timing.finalized = true
     delete requestTimingRef.current[sessionId]
 
     if (sessionId === activeSessionIdRef.current) {
       setSessionUsage((prev) => ({
         ...prev,
+        requestCount: prev.requestCount + 1,
         totalDurationMs: prev.totalDurationMs + elapsedMs,
+        modelTotalDurationMs: prev.modelTotalDurationMs + modelElapsedMs,
         lastDurationMs: elapsedMs,
+        lastModelDurationMs: modelElapsedMs,
       }))
       return
     }
@@ -380,8 +419,11 @@ export function useClaudeCode(): UseClaudeCodeReturn {
         ...session,
         usage: {
           ...usage,
+          requestCount: usage.requestCount + 1,
           totalDurationMs: usage.totalDurationMs + elapsedMs,
+          modelTotalDurationMs: usage.modelTotalDurationMs + modelElapsedMs,
           lastDurationMs: elapsedMs,
+          lastModelDurationMs: modelElapsedMs,
         },
       }
     }))
@@ -546,36 +588,50 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamData((sid, data) => {
       try {
         const evt = JSON.parse(data) as Record<string, unknown>
+        markModelTimingStarted(sid)
+
         if (evt.type === 'usage') {
-          const inputTk = (evt.inputTokens as number) || 0
-          const outputTk = (evt.outputTokens as number) || 0
-          // 根据该会话的模型计算费用
+          const usage: UsageTokens = {
+            inputTokens: (evt.inputTokens as number) || 0,
+            outputTokens: (evt.outputTokens as number) || 0,
+            cacheCreationInputTokens: (evt.cacheCreationInputTokens as number) || 0,
+            cacheReadInputTokens: (evt.cacheReadInputTokens as number) || 0,
+            reasoningTokens: (evt.reasoningTokens as number) || 0,
+          }
+
           const targetSession = sessionsRef.current.find(s => s.id === sid)
           const modelForCost = targetSession?.model || activeModelRef.current
-          const cost = calculateCost(modelForCost, inputTk, outputTk)
+          const normalizedModel = normalizeModelIdForPricing(modelForCost)
+          const modelFromSettings = settings.models.find((m) => normalizeModelIdForPricing(m.modelId) === normalizedModel)
+          const costResult = calculateUsageCost(modelForCost, usage, modelFromSettings?.pricing)
 
           if (sid === activeSessionIdRef.current) {
-            // 当前活跃会话：直接更新 UI state
             setSessionUsage((prev) => ({
               ...prev,
-              totalInputTokens: prev.totalInputTokens + inputTk,
-              totalOutputTokens: prev.totalOutputTokens + outputTk,
-              totalCost: prev.totalCost + cost,
-              requestCount: prev.requestCount + 1,
+              totalInputTokens: prev.totalInputTokens + usage.inputTokens,
+              totalOutputTokens: prev.totalOutputTokens + usage.outputTokens,
+              totalCacheCreationInputTokens: prev.totalCacheCreationInputTokens + (usage.cacheCreationInputTokens || 0),
+              totalCacheReadInputTokens: prev.totalCacheReadInputTokens + (usage.cacheReadInputTokens || 0),
+              totalReasoningTokens: prev.totalReasoningTokens + (usage.reasoningTokens || 0),
+              totalCost: prev.totalCost + costResult.cost,
+              unknownPriceRequestCount: prev.unknownPriceRequestCount + (costResult.hasKnownPricing ? 0 : 1),
             }))
           } else {
-            // 非活跃会话：累积到 session 的 usage 字段（切换后恢复）
             setSessions(prev => prev.map(s => {
               if (s.id !== sid) return s
               const u = normalizeUsage(s.usage)
               return {
-                ...s, usage: {
+                ...s,
+                usage: {
                   ...u,
-                  totalInputTokens: u.totalInputTokens + inputTk,
-                  totalOutputTokens: u.totalOutputTokens + outputTk,
-                  totalCost: u.totalCost + cost,
-                  requestCount: u.requestCount + 1,
-                }
+                  totalInputTokens: u.totalInputTokens + usage.inputTokens,
+                  totalOutputTokens: u.totalOutputTokens + usage.outputTokens,
+                  totalCacheCreationInputTokens: u.totalCacheCreationInputTokens + (usage.cacheCreationInputTokens || 0),
+                  totalCacheReadInputTokens: u.totalCacheReadInputTokens + (usage.cacheReadInputTokens || 0),
+                  totalReasoningTokens: u.totalReasoningTokens + (usage.reasoningTokens || 0),
+                  totalCost: u.totalCost + costResult.cost,
+                  unknownPriceRequestCount: u.unknownPriceRequestCount + (costResult.hasKnownPricing ? 0 : 1),
+                },
               }
             }))
           }
@@ -616,6 +672,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamError((sid, streamError) => {
       if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       flushPendingEvents()
+      markModelTimingStarted(sid)
       finalizeRequestTiming(sid, 'error')
       setErrorMap((prev) => ({ ...prev, [sid]: streamError }))
       setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
@@ -630,6 +687,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     electronAPI.onStreamEnd((sid) => {
       if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       flushPendingEvents()
+      markModelTimingStarted(sid)
       finalizeRequestTiming(sid, 'end')
       setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
       setRollbackingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
@@ -649,7 +707,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
       if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current)
       electronAPI.removeStreamListeners()
     }
-  }, [finalizeRequestTiming])
+  }, [finalizeRequestTiming, markModelTimingStarted, settings.models])
 
   // 流结束后，把对应会话的 streamBlocks 合并成 assistant message
   useEffect(() => {
@@ -791,7 +849,10 @@ export function useClaudeCode(): UseClaudeCodeReturn {
 
     const sid = activeSession.id
     requestTimingRef.current[sid] = { startedAt: Date.now(), finalized: false }
-    setSessionUsage(prev => ({ ...prev, messageCount: prev.messageCount + 1 }))
+    setSessionUsage(prev => ({
+      ...prev,
+      messageCount: prev.messageCount + 1,
+    }))
     setLoadingSessions((prev) => new Set(prev).add(sid))
     setErrorMap((prev) => { const next = { ...prev }; delete next[sid]; return next })
     setStreamBlocksMap((prev) => {
@@ -874,6 +935,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
               },
             ],
           }))
+          markModelTimingStarted(sid)
           finalizeRequestTiming(sid, 'end')
           setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
         }, 1000)
@@ -907,6 +969,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     rollbackingSessions,
     syncBackendHistory,
     finalizeRequestTiming,
+    markModelTimingStarted,
   ])
 
   const executeCommand = useCallback(async (command: string): Promise<string> => {
@@ -945,6 +1008,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
 
   const clearMessages = useCallback(() => {
     if (!activeSession || rollbackingSessions.has(activeSession.id)) return
+    if (loadingSessions.has(activeSession.id)) return
     updateSession(activeSession.id, (session) => ({
       ...session,
       messages: [],
@@ -954,7 +1018,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     window.electronAPI?.clearHistory(activeSession.id)
     cleanupSessionCaches(activeSession.id)
     resetUsage()
-  }, [activeSession, rollbackingSessions, updateSession, cleanupSessionCaches, resetUsage])
+  }, [activeSession, rollbackingSessions, loadingSessions, updateSession, cleanupSessionCaches, resetUsage])
 
   const createNewSession = useCallback(() => {
     const next = createSession(sessionCounterRef.current, settings.workingDirectory.trim() || undefined)
@@ -968,7 +1032,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
   }, [])
 
   const closeSession = useCallback((sessionId: string) => {
-    if (sessions.length <= 1 || rollbackingSessions.has(sessionId)) return
+    if (sessions.length <= 1 || rollbackingSessions.has(sessionId) || loadingSessions.has(sessionId)) return
 
     cleanupSessionCaches(sessionId)
 
@@ -984,7 +1048,7 @@ export function useClaudeCode(): UseClaudeCodeReturn {
         setActiveSessionId(fallback.id)
       }
     }
-  }, [activeSessionId, sessions, rollbackingSessions, cleanupSessionCaches])
+  }, [activeSessionId, sessions, rollbackingSessions, loadingSessions, cleanupSessionCaches])
 
   const importSessionMessages = useCallback((imported: Array<{
     role: 'user' | 'assistant'
@@ -1075,8 +1139,6 @@ export function useClaudeCode(): UseClaudeCodeReturn {
     if (!loadingSessions.has(sid) && !rollbackingSessions.has(sid)) return
     await window.electronAPI.stopStream(sid)
     finalizeRequestTiming(sid, 'stop')
-    setLoadingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
-    setRollbackingSessions((prev) => { const next = new Set(prev); next.delete(sid); return next })
   }, [activeSession, loadingSessions, rollbackingSessions, finalizeRequestTiming])
 
   // 编辑用户消息并重新发送（截断该消息之后的所有历史）

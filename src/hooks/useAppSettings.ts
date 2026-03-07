@@ -29,6 +29,13 @@ export interface ModelConfig {
   name: string      // 显示名
   modelId: string   // 实际 API 模型 ID
   endpoint?: EndpointSlot // 指定走哪个端点（默认 auto = 按前缀自动匹配）
+  pricing?: {
+    inputPerMillion: number
+    outputPerMillion: number
+    cacheCreationInputPerMillion?: number
+    cacheReadInputPerMillion?: number
+    reasoningPerMillion?: number
+  }
 }
 
 export interface AppSettings {
@@ -207,7 +214,31 @@ function readSettingsFromStorage(): AppSettings {
       defaultModel: fixedDefaultModel,
       customModel: fixedCustomModel,
       models: Array.isArray(parsed.models) && parsed.models.length > 0
-        ? parsed.models
+        ? parsed.models.map((model) => {
+          const m = model as ModelConfig
+          const pricing = m.pricing && typeof m.pricing === 'object'
+            ? {
+              inputPerMillion: typeof m.pricing.inputPerMillion === 'number' ? m.pricing.inputPerMillion : 0,
+              outputPerMillion: typeof m.pricing.outputPerMillion === 'number' ? m.pricing.outputPerMillion : 0,
+              cacheCreationInputPerMillion: typeof m.pricing.cacheCreationInputPerMillion === 'number'
+                ? m.pricing.cacheCreationInputPerMillion
+                : undefined,
+              cacheReadInputPerMillion: typeof m.pricing.cacheReadInputPerMillion === 'number'
+                ? m.pricing.cacheReadInputPerMillion
+                : undefined,
+              reasoningPerMillion: typeof m.pricing.reasoningPerMillion === 'number'
+                ? m.pricing.reasoningPerMillion
+                : undefined,
+            }
+            : undefined
+
+          return {
+            ...m,
+            pricing: pricing && pricing.inputPerMillion >= 0 && pricing.outputPerMillion >= 0
+              ? pricing
+              : undefined,
+          }
+        })
         : DEFAULT_MODELS,
       workingDirectory: parsed.workingDirectory || '',
       dangerouslySkipPermissions: Boolean(parsed.dangerouslySkipPermissions),

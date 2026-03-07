@@ -17,7 +17,7 @@
 - 流式 SSE 响应 + 工具调用实时展示
 - 危险操作确认机制（允许执行 / 全部允许 / 拒绝），支持"全部允许"一键信任后续操作
 - **任务完成桌面通知**：后台会话完成时弹 Windows 桌面通知
-- Token 用量/耗时追踪与费用估算（会话累计 + 最近一次耗时）
+- Token 用量/耗时追踪与费用估算（支持缓存/推理 token；会话累计 + 最近一次 + 模型耗时）
 - 文件变更历史 + 回滚（快照系统）
 - 对话导入/导出（Markdown 格式）
 - 消息编辑、重新生成、回滚到任意消息/轮次
@@ -291,7 +291,7 @@ assistant 消息不是纯文本，而是 `ContentBlock[]` 数组：
 通过 React Context 提供全局设置，7 个配置子面板：
 - **基础设置**：默认模型、自定义模型名、工作目录、字体大小、模型参数（最大输出 Tokens）、聊天主题
 - **API 配置**：主端点 + 备用端点 + 中转站端点（各自独立 API Key 和格式）、连接测试
-- **模型管理**：增删模型列表，并可按模型指定端点（auto/main/alt/third）
+- **模型管理**：增删模型列表、按模型指定端点（auto/main/alt/third），并支持为单模型配置自定义定价
 - **Hooks**：PreToolUse / PostToolUse / Notification 事件的自定义命令
 - **MCP 服务器**：名称、命令、参数、连接测试
 - **更新**：版本检查、下载与安装
@@ -380,7 +380,7 @@ assistant 消息不是纯文本，而是 `ContentBlock[]` 数组：
 | `claude-stream-data` (type=`tool_result`) | sessionId, toolId, toolName, output, isError | 工具执行结果 |
 | `claude-stream-data` (type=`tool_confirm`) | sessionId, confirmId, toolName, input | 需要用户确认 |
 | `claude-stream-data` (type=`round`) | sessionId, round | 新一轮思考开始 |
-| `claude-stream-data` (type=`usage`) | sessionId, inputTokens, outputTokens | Token 用量 |
+| `claude-stream-data` (type=`usage`) | sessionId, inputTokens, outputTokens, cacheCreationInputTokens?, cacheReadInputTokens?, reasoningTokens? | Token 用量 |
 | `claude-stream-error` | sessionId, error | 错误信息 |
 | `claude-stream-end` | sessionId, code | 流式结束（0=成功，1=错误） |
 
@@ -429,7 +429,7 @@ Tailwind 配置（`tailwind.config.js`）中定义的 Claude 品牌色：
 - **OpenAI**：GPT-4o/Mini、GPT-4 Turbo、o1/o3/o4 系列
 - **DeepSeek**：deepseek-chat、deepseek-reasoner
 
-`SessionUsage` 在 `useClaudeCode` 中按会话累积，每次 API 返回 usage 事件时更新。
+`SessionUsage` 在 `useClaudeCode` 中按会话累积，每次 API 返回 usage 事件时更新；支持缓存/推理 token 的独立统计，并支持按模型自定义定价覆盖内置定价。
 
 ---
 

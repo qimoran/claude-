@@ -1,10 +1,36 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Save, FolderOpen, Plus, Trash2, Wifi, WifiOff, Type, Sliders, RefreshCw, Download } from 'lucide-react'
 import HooksConfig from './HooksConfig'
 import McpConfig from './McpConfig'
 import { useAppSettings, ModelConfig, EndpointSlot } from '../../hooks/useAppSettings'
 
 type SettingsTab = 'general' | 'api' | 'models' | 'hooks' | 'mcp' | 'updates' | 'permissions'
+
+type PricingDraft = {
+  inputPerMillion: string
+  outputPerMillion: string
+  cacheCreationInputPerMillion: string
+  cacheReadInputPerMillion: string
+  reasoningPerMillion: string
+}
+
+type PricingDraftField = keyof PricingDraft
+
+const toPricingDraft = (pricing?: ModelConfig['pricing']): PricingDraft => ({
+  inputPerMillion: pricing?.inputPerMillion !== undefined ? String(pricing.inputPerMillion) : '',
+  outputPerMillion: pricing?.outputPerMillion !== undefined ? String(pricing.outputPerMillion) : '',
+  cacheCreationInputPerMillion: pricing?.cacheCreationInputPerMillion !== undefined ? String(pricing.cacheCreationInputPerMillion) : '',
+  cacheReadInputPerMillion: pricing?.cacheReadInputPerMillion !== undefined ? String(pricing.cacheReadInputPerMillion) : '',
+  reasoningPerMillion: pricing?.reasoningPerMillion !== undefined ? String(pricing.reasoningPerMillion) : '',
+})
+
+const parseNonNegativeNumber = (raw: string): number | undefined => {
+  const value = raw.trim()
+  if (!value) return undefined
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined
+  return parsed
+}
 
 export default function SettingsPanel() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -15,6 +41,9 @@ export default function SettingsPanel() {
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'connected' | 'failed'>('idle')
   const [connLatency, setConnLatency] = useState(0)
   const [connError, setConnError] = useState('')
+
+  // ── 模型定价草稿（按 model.id）──
+  const [pricingDrafts, setPricingDrafts] = useState<Record<string, PricingDraft>>({})
 
   // ── 更新状态 ──
   const [appVersion, setAppVersion] = useState('')
@@ -27,6 +56,16 @@ export default function SettingsPanel() {
   const [newModelName, setNewModelName] = useState('')
   const [newModelId, setNewModelId] = useState('')
   const [newModelEndpoint, setNewModelEndpoint] = useState<EndpointSlot>('auto')
+
+  useEffect(() => {
+    setPricingDrafts((prev) => {
+      const next: Record<string, PricingDraft> = {}
+      for (const model of settings.models) {
+        next[model.id] = prev[model.id] || toPricingDraft(model.pricing)
+      }
+      return next
+    })
+  }, [settings.models])
 
   const handleSave = () => {
     saveSettings()
@@ -56,6 +95,58 @@ export default function SettingsPanel() {
       setConnError(err instanceof Error ? err.message : '检测失败')
     }
   }
+
+  const handleUpdateModelPricingField = useCallback((modelId: string, field: PricingDraftField, value: string) => {
+    setPricingDrafts((prev) => ({
+      ...prev,
+      [modelId]: {
+        ...prev[modelId],
+        [field]: value,
+      },
+    }))
+  }, [])
+
+  const handleApplyModelPricing = useCallback((modelId: string) => {
+    const draft = pricingDrafts[modelId] || toPricingDraft()
+    const inputPerMillion = parseNonNegativeNumber(draft.inputPerMillion)
+    const outputPerMillion = parseNonNegativeNumber(draft.outputPerMillion)
+
+    const updatedModels = settings.models.map((model) => {
+      if (model.id !== modelId) return model
+
+      if (inputPerMillion === undefined || outputPerMillion === undefined) {
+        return {
+          ...model,
+          pricing: undefined,
+        }
+      }
+
+      return {
+        ...model,
+        pricing: {
+          inputPerMillion,
+          outputPerMillion,
+          cacheCreationInputPerMillion: parseNonNegativeNumber(draft.cacheCreationInputPerMillion),
+          cacheReadInputPerMillion: parseNonNegativeNumber(draft.cacheReadInputPerMillion),
+          reasoningPerMillion: parseNonNegativeNumber(draft.reasoningPerMillion),
+        },
+      }
+    })
+
+    updateSettings({ models: updatedModels })
+  }, [pricingDrafts, settings.models, updateSettings])
+
+  const handleClearModelPricing = useCallback((modelId: string) => {
+    updateSettings({
+      models: settings.models.map((model) => (
+        model.id === modelId ? { ...model, pricing: undefined } : model
+      )),
+    })
+    setPricingDrafts((prev) => ({
+      ...prev,
+      [modelId]: toPricingDraft(),
+    }))
+  }, [settings.models, updateSettings])
 
   const handleAddModel = () => {
     const name = newModelName.trim()
@@ -628,40 +719,128 @@ export default function SettingsPanel() {
 
             {/* 已有模型列表 */}
             <div className="space-y-2">
-              {settings.models.map((model) => (
-                <div
-                  key={model.id}
-                  className="flex items-center justify-between bg-claude-surface border border-claude-border rounded-lg px-4 py-3"
-                >
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-claude-text">{model.name}</p>
-                    <p className="text-xs text-claude-text-muted font-mono">{model.modelId}</p>
+              {settings.models.map((model) => {
+                const pricingDraft = pricingDrafts[model.id] || toPricingDraft(model.pricing)
+                return (
+                  <div
+                    key={model.id}
+                    className="bg-claude-surface border border-claude-border rounded-lg px-4 py-3 space-y-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-claude-text">{model.name}</p>
+                        <p className="text-xs text-claude-text-muted font-mono">{model.modelId}</p>
+                      </div>
+                      <select
+                        value={model.endpoint || 'auto'}
+                        onChange={(e) => {
+                          const updated = settings.models.map(m =>
+                            m.id === model.id ? { ...m, endpoint: e.target.value as EndpointSlot } : m
+                          )
+                          updateSettings({ models: updated })
+                        }}
+                        className="bg-claude-bg border border-claude-border rounded px-2 py-1 text-xs text-claude-text"
+                        title="该模型走哪个端点"
+                      >
+                        <option value="auto">自动</option>
+                        <option value="main">主端点</option>
+                        <option value="alt">备用端点</option>
+                        <option value="third">中转站</option>
+                      </select>
+                      <button
+                        onClick={() => handleRemoveModel(model.id)}
+                        className="p-1.5 text-claude-text-muted hover:text-red-400 transition-colors"
+                        title="删除模型"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] text-claude-text-muted">输入 / 1M</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          value={pricingDraft.inputPerMillion}
+                          onChange={(e) => handleUpdateModelPricingField(model.id, 'inputPerMillion', e.target.value)}
+                          placeholder="必填"
+                          className="bg-claude-bg border border-claude-border rounded px-2 py-1.5 text-xs text-claude-text focus:outline-none focus:border-claude-primary"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] text-claude-text-muted">输出 / 1M</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          value={pricingDraft.outputPerMillion}
+                          onChange={(e) => handleUpdateModelPricingField(model.id, 'outputPerMillion', e.target.value)}
+                          placeholder="必填"
+                          className="bg-claude-bg border border-claude-border rounded px-2 py-1.5 text-xs text-claude-text focus:outline-none focus:border-claude-primary"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] text-claude-text-muted">缓存写入 / 1M</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          value={pricingDraft.cacheCreationInputPerMillion}
+                          onChange={(e) => handleUpdateModelPricingField(model.id, 'cacheCreationInputPerMillion', e.target.value)}
+                          placeholder="可选"
+                          className="bg-claude-bg border border-claude-border rounded px-2 py-1.5 text-xs text-claude-text focus:outline-none focus:border-claude-primary"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] text-claude-text-muted">缓存读取 / 1M</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          value={pricingDraft.cacheReadInputPerMillion}
+                          onChange={(e) => handleUpdateModelPricingField(model.id, 'cacheReadInputPerMillion', e.target.value)}
+                          placeholder="可选"
+                          className="bg-claude-bg border border-claude-border rounded px-2 py-1.5 text-xs text-claude-text focus:outline-none focus:border-claude-primary"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] text-claude-text-muted">推理 / 1M</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          value={pricingDraft.reasoningPerMillion}
+                          onChange={(e) => handleUpdateModelPricingField(model.id, 'reasoningPerMillion', e.target.value)}
+                          placeholder="可选"
+                          className="bg-claude-bg border border-claude-border rounded px-2 py-1.5 text-xs text-claude-text focus:outline-none focus:border-claude-primary"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleApplyModelPricing(model.id)}
+                        className="px-3 py-1.5 text-xs rounded-md bg-claude-primary hover:bg-claude-primary-light text-white transition-colors"
+                      >
+                        应用定价
+                      </button>
+                      <button
+                        onClick={() => handleClearModelPricing(model.id)}
+                        className="px-3 py-1.5 text-xs rounded-md border border-claude-border text-claude-text-muted hover:text-claude-text hover:border-claude-primary/50 transition-colors"
+                      >
+                        清空定价
+                      </button>
+                      {model.pricing ? (
+                        <span className="text-[11px] text-green-400">已启用自定义定价</span>
+                      ) : (
+                        <span className="text-[11px] text-claude-text-dim">未配置（回退内置定价）</span>
+                      )}
+                    </div>
                   </div>
-                  <select
-                    value={model.endpoint || 'auto'}
-                    onChange={(e) => {
-                      const updated = settings.models.map(m =>
-                        m.id === model.id ? { ...m, endpoint: e.target.value as EndpointSlot } : m
-                      )
-                      updateSettings({ models: updated })
-                    }}
-                    className="bg-claude-bg border border-claude-border rounded px-2 py-1 text-xs text-claude-text"
-                    title="该模型走哪个端点"
-                  >
-                    <option value="auto">自动</option>
-                    <option value="main">主端点</option>
-                    <option value="alt">备用端点</option>
-                    <option value="third">中转站</option>
-                  </select>
-                  <button
-                    onClick={() => handleRemoveModel(model.id)}
-                    className="p-1.5 text-claude-text-muted hover:text-red-400 transition-colors"
-                    title="删除模型"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* 添加新模型 */}

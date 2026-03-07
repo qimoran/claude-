@@ -1031,8 +1031,12 @@ ipcMain.handle('check-api-connection', async (_event, config: { endpoint: string
           res.on('data', () => { /* drain */ })
           res.on('end', () => {
             const latency = Date.now() - startTime
-            // 任何 HTTP 响应都说明服务器在运行（包括 401/404 等）
-            resolve({ connected: true, latency })
+            const status = res.statusCode || 0
+            if (status >= 200 && status < 500) {
+              resolve({ connected: true, latency })
+              return
+            }
+            resolve({ connected: false, latency, error: `HTTP ${status}` })
           })
         },
       )
@@ -1562,11 +1566,16 @@ ipcMain.handle('claude-stream', async (event, payload: ChatPayload) => {
         }))
       }
 
-      const reportUsage = (inputTokens: number, outputTokens: number) => {
+      const reportUsage = (usage: {
+        inputTokens: number
+        outputTokens: number
+        cacheCreationInputTokens?: number
+        cacheReadInputTokens?: number
+        reasoningTokens?: number
+      }) => {
         event.sender.send('claude-stream-data', sessionId, JSON.stringify({
           type: 'usage',
-          inputTokens,
-          outputTokens,
+          ...usage,
         }))
       }
 

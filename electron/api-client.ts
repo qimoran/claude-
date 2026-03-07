@@ -10,16 +10,36 @@ import type { AnthropicToolDefinition } from './tools'
 
 // ── 端点解析 ─────────────────────────────────────────────
 export function parseEndpoint(endpoint: string): { protocol: string; hostname: string; port: number; basePath: string } {
+  const trimmed = endpoint.trim()
+  if (!trimmed) {
+    throw new Error('API 端点为空，请先在设置中填写有效地址')
+  }
+
+  let normalized = trimmed
+  if (!/^https?:\/\//i.test(normalized)) {
+    normalized = `http://${normalized}`
+  }
+
+  let url: URL
   try {
-    const url = new URL(endpoint)
-    return {
-      protocol: url.protocol,
-      hostname: url.hostname,
-      port: parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80),
-      basePath: url.pathname.replace(/\/$/, ''),
-    }
+    url = new URL(normalized)
   } catch {
-    return { protocol: 'http:', hostname: '127.0.0.1', port: 3456, basePath: '' }
+    throw new Error(`API 端点格式无效: ${endpoint}`)
+  }
+
+  if (!url.hostname) {
+    throw new Error(`API 端点缺少主机名: ${endpoint}`)
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`API 端点协议不受支持: ${url.protocol}`)
+  }
+
+  return {
+    protocol: url.protocol,
+    hostname: url.hostname,
+    port: parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80),
+    basePath: url.pathname.replace(/\/$/, ''),
   }
 }
 
@@ -31,7 +51,13 @@ export function callAnthropicStream(
   onText: (text: string) => void,
   onToolUse: (id: string, name: string, input: ToolInput) => void,
   onImage: (url: string, alt?: string) => void,
-  onUsage: (inputTokens: number, outputTokens: number) => void,
+  onUsage: (usage: {
+    inputTokens: number
+    outputTokens: number
+    cacheCreationInputTokens?: number
+    cacheReadInputTokens?: number
+    reasoningTokens?: number
+  }) => void,
 ): Promise<{
   stopReason: string | null
   contentBlocks: ContentBlock[]
@@ -157,7 +183,10 @@ export function callAnthropicStream(
 
         res.on('end', () => {
           if (totalInputTokens > 0 || totalOutputTokens > 0) {
-            onUsage(totalInputTokens, totalOutputTokens)
+            onUsage({
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
+            })
           }
           resolve({ stopReason, contentBlocks })
         })
@@ -267,7 +296,13 @@ export function callOpenAIStream(
   onText: (text: string) => void,
   onToolUse: (id: string, name: string, input: ToolInput) => void,
   onImage: (url: string, alt?: string) => void,
-  onUsage: (inputTokens: number, outputTokens: number) => void,
+  onUsage: (usage: {
+    inputTokens: number
+    outputTokens: number
+    cacheCreationInputTokens?: number
+    cacheReadInputTokens?: number
+    reasoningTokens?: number
+  }) => void,
   maxTokens = 8192,
   toolsAnthropic: AnthropicToolDefinition[] = [],
 ): Promise<{
@@ -320,6 +355,8 @@ export function callOpenAIStream(
         // 累积 usage 数据，只在流结束时上报一次（避免每个 chunk 都触发导致虚增）
         let lastPromptTokens = 0
         let lastCompletionTokens = 0
+        let lastPromptTokensDetails: Record<string, number> | null = null
+        let lastCompletionTokensDetails: Record<string, number> | null = null
 
         const finalizeToolBuffer = (buf: { id: string; name: string; argsBuf: string }) => {
           if (!buf.id || finalizedToolIds.has(buf.id)) return
@@ -372,6 +409,12 @@ export function callOpenAIStream(
                 // 只记录最新值，不立即调用 onUsage（等流结束再统一上报）
                 lastPromptTokens = evt.usage.prompt_tokens || lastPromptTokens
                 lastCompletionTokens = evt.usage.completion_tokens || lastCompletionTokens
+                lastPromptTokensDetails = evt.usage.prompt_tokens_details && typeof evt.usage.prompt_tokens_details === 'object'
+                  ? evt.usage.prompt_tokens_details as Record<string, number>
+                  : lastPromptTokensDetails
+                lastCompletionTokensDetails = evt.usage.completion_tokens_details && typeof evt.usage.completion_tokens_details === 'object'
+                  ? evt.usage.completion_tokens_details as Record<string, number>
+                  : lastCompletionTokensDetails
               }
 
               const choice = evt.choices?.[0]
@@ -467,7 +510,17 @@ export function callOpenAIStream(
           }
           // 流结束时统一上报一次 usage
           if (lastPromptTokens > 0 || lastCompletionTokens > 0) {
-            onUsage(lastPromptTokens, lastCompletionTokens)
+            onUsage({
+              inputTokens: lastPromptTokens,
+              outputTokens: lastCompletionTokens,
+              cacheCreationInputTokens: undefined,
+              cacheReadInputTokens: typeof lastPromptTokensDetails?.cached_tokens === 'number'
+                ? lastPromptTokensDetails.cached_tokens
+                : undefined,
+              reasoningTokens: typeof lastCompletionTokensDetails?.reasoning_tokens === 'number'
+                ? lastCompletionTokensDetails.reasoning_tokens
+                : undefined,
+            })
           }
           resolve({ stopReason, contentBlocks })
         })
